@@ -53,7 +53,8 @@ SOURCES_FULL = \
   $(SRC_DIR)/commands/math/advancedSymbols.ts \
   $(SRC_DIR)/commands/math/basicSymbols.ts \
   $(SRC_DIR)/commands/math/commands.ts \
-  $(SRC_DIR)/commands/math/LatexCommandInput.ts
+  $(SRC_DIR)/commands/math/LatexCommandInput.ts \
+  $(SRC_DIR)/commands/math/matrix.ts
 
 
 SOURCES_BASIC = \

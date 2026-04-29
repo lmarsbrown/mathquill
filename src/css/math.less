@@ -281,6 +281,72 @@
   }
 
   ////
+  // Matrix styles
+  .mq-matrix {
+    display: inline-block;
+    vertical-align: middle;
+    position: relative;
+  }
+
+  .mq-matrix-table {
+    display: inline-table;
+    border-collapse: collapse;
+    vertical-align: middle;
+  }
+
+  .mq-matrix-row {
+    display: table-row;
+  }
+
+  .mq-matrix-cell {
+    display: table-cell;
+    padding: 0.2em 0.4em;
+    text-align: center;
+    vertical-align: middle;
+    min-width: 1em;
+  }
+
+  .mq-matrix-cell.mq-empty {
+    min-width: 1.5em;
+  }
+
+  .mq-matrix-delim {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+  }
+
+  .mq-matrix-delim-left {
+    left: 0;
+    width: 0.55em;
+  }
+
+  .mq-matrix-delim-right {
+    right: 0;
+    width: 0.55em;
+  }
+
+  .mq-matrix-delim svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  // Adjust table position when delimiters are present
+  .mq-matrix > .mq-matrix-table {
+    margin-left: 0.6em;
+    margin-right: 0.6em;
+  }
+
+  // For matrix without delimiters
+  .mq-matrix:not(:has(.mq-matrix-delim)) > .mq-matrix-table {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  ////
   // non-italicized operator names
   // like \sin, \cos, \ln, etc.
   .mq-operator-name {
