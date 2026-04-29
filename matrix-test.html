@@ -72,7 +72,14 @@
     <h1>MathQuill Matrix Test</h1>
 
     <div class="info">
-      <h3>Controls:</h3>
+      <h3>Type these commands:</h3>
+      <ul>
+        <li><kbd>\mat</kbd> - matrix (no delimiters)</li>
+        <li><kbd>\pmat</kbd> - parentheses matrix ( )</li>
+        <li><kbd>\bmat</kbd> - bracket matrix [ ]</li>
+        <li><kbd>\vmat</kbd> - vertical bar matrix | |</li>
+      </ul>
+      <h3>Navigation:</h3>
       <ul>
         <li><kbd>Left</kbd> / <kbd>Right</kbd> - Move between columns</li>
         <li><kbd>Up</kbd> / <kbd>Down</kbd> - Move between rows</li>
@@ -111,6 +118,27 @@
       <button onclick="clearField()">Clear</button>
     </div>
 
+    <h3>Test: Parse Custom LaTeX</h3>
+    <textarea
+      id="latex-input"
+      rows="3"
+      style="
+        width: 100%;
+        font-family: monospace;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 10px;
+      "
+    >
+\begin{pmatrix} a & b \\ c & d \end{pmatrix}</textarea
+    >
+    <div class="controls">
+      <button onclick="parseLatex()">Parse LaTeX</button>
+      <button onclick="roundTrip()">Round-trip Test</button>
+    </div>
+    <div id="roundtrip-result" class="info" style="display: none"></div>
+
     <script src="build/mathquill.js"></script>
     <script>
       var MQ = MathQuill.getInterface(3);
@@ -142,6 +170,41 @@
       function clearField() {
         mathField.latex('');
         mathField.focus();
+      }
+
+      function parseLatex() {
+        var input = document.getElementById('latex-input').value;
+        mathField.latex(input);
+        mathField.focus();
+      }
+
+      function roundTrip() {
+        var input = document.getElementById('latex-input').value;
+        mathField.latex(input);
+        var output = mathField.latex();
+        var resultDiv = document.getElementById('roundtrip-result');
+        resultDiv.style.display = 'block';
+
+        var inputNorm = input.replace(/\s+/g, ' ').trim();
+        var outputNorm = output.replace(/\s+/g, ' ').trim();
+
+        if (inputNorm === outputNorm) {
+          resultDiv.style.borderColor = '#4caf50';
+          resultDiv.style.background = '#e8f5e9';
+          resultDiv.innerHTML =
+            '<strong>Round-trip successful!</strong><br>Input and output match.';
+        } else {
+          resultDiv.style.borderColor = '#ff9800';
+          resultDiv.style.background = '#fff3e0';
+          resultDiv.innerHTML =
+            '<strong>Round-trip comparison:</strong><br>' +
+            '<strong>Input:</strong> <code>' +
+            inputNorm +
+            '</code><br>' +
+            '<strong>Output:</strong> <code>' +
+            outputNorm +
+            '</code>';
+        }
       }
 
       mathField.focus();
