@@ -84,6 +84,11 @@ class MatrixCell extends MathBlock {
     const matrix = this.parent as Matrix;
 
     switch (key) {
+      case 'Ctrl-,':
+        e?.preventDefault();
+        matrix.addColumn(this.col + 1, ctrlr.cursor);
+        return;
+
       case 'Enter':
         e?.preventDefault();
         matrix.addRow(this.row + 1, ctrlr);
@@ -178,7 +183,11 @@ class MatrixCell extends MathBlock {
   write(cursor: Cursor, ch: string) {
     if (ch === ',') {
       const matrix = this.parent as Matrix;
-      matrix.addColumn(this.col + 1, cursor);
+      if (this.col < matrix.nCols - 1) {
+        cursor.insAtLeftEnd(matrix.cells[this.row][this.col + 1] as MQNode);
+      } else {
+        matrix.addColumn(this.col + 1, cursor);
+      }
       return;
     }
     super.write(cursor, ch);
@@ -191,6 +200,7 @@ class Matrix extends MathCommand {
   cells: MatrixCell[][];
   nRows: number;
   nCols: number;
+  showCommas: boolean = true;
 
   constructor(
     environment: MatrixEnvironment = 'pmatrix',
@@ -205,6 +215,11 @@ class Matrix extends MathCommand {
 
     const config = MATRIX_CONFIGS[environment];
     this.ctrlSeq = config.ctrlSeq;
+  }
+
+  createLeftOf(cursor: Cursor) {
+    this.showCommas = cursor.options.matrixCommaSeparators ?? true;
+    super.createLeftOf(cursor);
   }
 
   static createDefault(environment: MatrixEnvironment) {
@@ -287,7 +302,6 @@ class Matrix extends MathCommand {
   }
 
   addRow(afterRow: number, ctrlr: Controller) {
-    const currentCol = (ctrlr.cursor.parent as unknown as MatrixCell).col;
     this.nRows++;
 
     const newRow: MatrixCell[] = [];
@@ -314,7 +328,7 @@ class Matrix extends MathCommand {
     }
 
     this.rebuildDOM();
-    ctrlr.cursor.insAtLeftEnd(this.cells[afterRow][currentCol] as MQNode);
+    ctrlr.cursor.insAtLeftEnd(this.cells[afterRow][0] as MQNode);
     ctrlr.handle('edit');
   }
 
@@ -351,7 +365,6 @@ class Matrix extends MathCommand {
     if (this.nRows <= 1) return;
 
     const nextRow = row > 0 ? row - 1 : 0;
-    const currentCol = (ctrlr.cursor.parent as unknown as MatrixCell).col;
 
     for (let c = 0; c < this.nCols; c++) {
       this.cells[row][c].remove();
@@ -374,7 +387,7 @@ class Matrix extends MathCommand {
     }
 
     this.rebuildDOM();
-    ctrlr.cursor.insAtRightEnd(this.cells[nextRow][currentCol] as MQNode);
+    ctrlr.cursor.insAtRightEnd(this.cells[nextRow][this.nCols - 1] as MQNode);
     ctrlr.handle('edit');
   }
 
@@ -505,6 +518,24 @@ class Matrix extends MathCommand {
 
     this.upInto = this.cells[0][0] as MQNode;
     this.downInto = this.cells[this.nRows - 1][0] as MQNode;
+
+    // Try to get showCommas from controller options (for parsed matrices)
+    let node: MQNode | undefined = this.parent;
+    while (node) {
+      const controller = (node as MathBlock).controller;
+      if (controller) {
+        this.showCommas = controller.options.matrixCommaSeparators ?? true;
+        break;
+      }
+      node = node.parent;
+    }
+
+    // Update DOM class based on showCommas setting
+    if (!this.showCommas) {
+      this.domFrag().addClass('mq-matrix-no-commas');
+    } else {
+      this.domFrag().removeClass('mq-matrix-no-commas');
+    }
   }
 
   parser(): Parser<MQNode | Fragment> {

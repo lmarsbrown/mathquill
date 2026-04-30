@@ -83,7 +83,13 @@
       <ul>
         <li><kbd>Left</kbd> / <kbd>Right</kbd> - Move between columns</li>
         <li><kbd>Up</kbd> / <kbd>Down</kbd> - Move between rows</li>
-        <li><kbd>,</kbd> (comma) - Add a new column</li>
+        <li>
+          <kbd>,</kbd> (comma) - Move to next cell, or add column if in last
+          cell
+        </li>
+        <li>
+          <kbd>Ctrl</kbd>+<kbd>,</kbd> - Insert a new column after current
+        </li>
         <li><kbd>Enter</kbd> - Add a new row</li>
         <li><kbd>Backspace</kbd> on empty cell in top row - Delete column</li>
         <li><kbd>Backspace</kbd> on empty cell in first column - Delete row</li>
@@ -104,6 +110,15 @@
         Insert matrix (no delims)
       </button>
       <button onclick="insertMatrix('vmatrix')">Insert vmatrix |bars|</button>
+      <label style="margin-left: 20px; cursor: pointer">
+        <input
+          type="checkbox"
+          id="commaToggle"
+          checked
+          onchange="toggleCommas()"
+        />
+        Show comma separators
+      </label>
     </div>
 
     <div id="mathfield" class="editor"></div>
@@ -142,15 +157,36 @@
     <script src="build/mathquill.js"></script>
     <script>
       var MQ = MathQuill.getInterface(3);
+      var showCommas = true;
 
-      var mathField = MQ.MathField(document.getElementById('mathfield'), {
-        spaceBehavesLikeTab: true,
-        handlers: {
-          edit: function () {
-            document.getElementById('latex').textContent = mathField.latex();
+      function createMathField() {
+        var el = document.getElementById('mathfield');
+        var currentLatex = window.mathField ? mathField.latex() : '';
+        el.innerHTML = '';
+
+        window.mathField = MQ.MathField(el, {
+          spaceBehavesLikeTab: true,
+          matrixCommaSeparators: showCommas,
+          handlers: {
+            edit: function () {
+              document.getElementById('latex').textContent = mathField.latex();
+            },
           },
-        },
-      });
+        });
+
+        if (currentLatex) {
+          mathField.latex(currentLatex);
+        }
+        return mathField;
+      }
+
+      var mathField = createMathField();
+
+      function toggleCommas() {
+        showCommas = document.getElementById('commaToggle').checked;
+        createMathField();
+        mathField.focus();
+      }
 
       function insertMatrix(type) {
         mathField.cmd(type);
