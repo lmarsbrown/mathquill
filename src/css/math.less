@@ -301,10 +301,22 @@
 
   .mq-matrix-cell {
     display: table-cell;
-    padding: 0.3em 0.5em;
+    padding: 0.15em 0.2em;
     text-align: center;
     vertical-align: middle;
     min-width: 1em;
+    position: relative;
+  }
+
+  .mq-matrix-cell-comma::after {
+    content: ',';
+    position: absolute;
+    right: -0.1em;
+    bottom: 0.15em;
+  }
+
+  .mq-matrix-cell-comma.mq-matrix-cell-content-empty::after {
+    content: none;
   }
 
   .mq-matrix-cell > .mq-empty {

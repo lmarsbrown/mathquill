@@ -40,6 +40,44 @@ class MatrixCell extends MathBlock {
     super();
     this.row = row;
     this.col = col;
+
+    this.upOutOf = (cursor: Cursor): Cursor | undefined => {
+      const matrix = this.parent as Matrix;
+      if (this.row > 0) {
+        cursor.insAtLeftEnd(matrix.cells[this.row - 1][this.col] as MQNode);
+        return undefined;
+      }
+      return undefined;
+    };
+
+    this.downOutOf = (cursor: Cursor): Cursor | undefined => {
+      const matrix = this.parent as Matrix;
+      if (this.row < matrix.nRows - 1) {
+        cursor.insAtLeftEnd(matrix.cells[this.row + 1][this.col] as MQNode);
+        return undefined;
+      }
+      return undefined;
+    };
+  }
+
+  updateCommaState() {
+    if (this.isEmpty()) {
+      this.domFrag().addClass('mq-matrix-cell-content-empty');
+    } else {
+      this.domFrag().removeClass('mq-matrix-cell-content-empty');
+    }
+  }
+
+  focus() {
+    super.focus();
+    this.updateCommaState();
+    return this;
+  }
+
+  blur(cursor: Cursor) {
+    super.blur(cursor);
+    this.updateCommaState();
+    return this;
   }
 
   keystroke(key: string, e: KeyboardEvent | undefined, ctrlr: Controller) {
@@ -51,6 +89,17 @@ class MatrixCell extends MathBlock {
         matrix.addRow(this.row + 1, ctrlr);
         return;
 
+      case 'Tab':
+        e?.preventDefault();
+        if (this.col < matrix.nCols - 1) {
+          ctrlr.cursor.insAtLeftEnd(
+            matrix.cells[this.row][this.col + 1] as MQNode
+          );
+        } else {
+          matrix.addColumn(this.col + 1, ctrlr.cursor);
+        }
+        return;
+
       case 'Backspace':
         if (this.isEmpty()) {
           e?.preventDefault();
@@ -59,7 +108,9 @@ class MatrixCell extends MathBlock {
           } else if (this.col === 0 && matrix.nRows > 1) {
             matrix.deleteRow(this.row, ctrlr);
           } else if (this.col > 0) {
-            ctrlr.cursor.insAtRightEnd(matrix.cells[this.row][this.col - 1]);
+            ctrlr.cursor.insAtRightEnd(
+              matrix.cells[this.row][this.col - 1] as MQNode
+            );
           } else if (matrix.nRows === 1 && matrix.nCols === 1) {
             const rightward = matrix[R];
             ctrlr.cursor.insLeftOf(matrix);
@@ -78,7 +129,9 @@ class MatrixCell extends MathBlock {
           if (this.row === 0 && matrix.nCols > 1) {
             matrix.deleteColumn(this.col, ctrlr);
           } else if (this.col > 0) {
-            ctrlr.cursor.insAtRightEnd(matrix.cells[this.row][this.col - 1]);
+            ctrlr.cursor.insAtRightEnd(
+              matrix.cells[this.row][this.col - 1] as MQNode
+            );
           } else if (matrix.nRows === 1 && matrix.nCols === 1) {
             const rightward = matrix[R];
             ctrlr.cursor.insLeftOf(matrix);
@@ -94,25 +147,9 @@ class MatrixCell extends MathBlock {
         break;
     }
 
-    return super.keystroke(key, e, ctrlr);
-  }
-
-  upOutOf(cursor: Cursor) {
-    const matrix = this.parent as Matrix;
-    if (this.row > 0) {
-      cursor.insAtLeftEnd(matrix.cells[this.row - 1][this.col]);
-      return false;
-    }
-    return true;
-  }
-
-  downOutOf(cursor: Cursor) {
-    const matrix = this.parent as Matrix;
-    if (this.row < matrix.nRows - 1) {
-      cursor.insAtLeftEnd(matrix.cells[this.row + 1][this.col]);
-      return false;
-    }
-    return true;
+    const result = super.keystroke(key, e, ctrlr);
+    this.updateCommaState();
+    return result;
   }
 
   moveOutOf(dir: Direction, cursor: Cursor, updown?: 'up' | 'down') {
@@ -120,14 +157,14 @@ class MatrixCell extends MathBlock {
 
     if (dir === L) {
       if (this.col > 0) {
-        cursor.insAtRightEnd(matrix.cells[this.row][this.col - 1]);
+        cursor.insAtRightEnd(matrix.cells[this.row][this.col - 1] as MQNode);
         return;
       }
       cursor.insLeftOf(matrix);
       return;
     } else if (dir === R) {
       if (this.col < matrix.nCols - 1) {
-        cursor.insAtLeftEnd(matrix.cells[this.row][this.col + 1]);
+        cursor.insAtLeftEnd(matrix.cells[this.row][this.col + 1] as MQNode);
         return;
       }
       cursor.insRightOf(matrix);
@@ -145,6 +182,7 @@ class MatrixCell extends MathBlock {
       return;
     }
     super.write(cursor, ch);
+    this.updateCommaState();
   }
 }
 
@@ -170,7 +208,7 @@ class Matrix extends MathCommand {
   }
 
   static createDefault(environment: MatrixEnvironment) {
-    return () => new Matrix(environment, 2, 2);
+    return () => new Matrix(environment, 1, 1);
   }
 
   numBlocks() {
@@ -186,7 +224,7 @@ class Matrix extends MathCommand {
       for (let c = 0; c < this.nCols; c++) {
         const cell = new MatrixCell(r, c);
         this.cells[r][c] = cell;
-        this.blocks.push(cell);
+        this.blocks.push(cell as MathBlock);
         cell.adopt(this, this.getEnd(R), 0);
       }
     }
@@ -209,8 +247,10 @@ class Matrix extends MathCommand {
         const cell = this.cells[r][c];
         if (cell.isEmpty()) {
           cell.domFrag().addClass('mq-empty');
+          cell.domFrag().addClass('mq-matrix-cell-content-empty');
         } else {
           cell.domFrag().removeClass('mq-empty');
+          cell.domFrag().removeClass('mq-matrix-cell-content-empty');
         }
       }
     }
@@ -232,7 +272,7 @@ class Matrix extends MathCommand {
     for (let r = 0; r < this.nRows; r++) {
       for (let c = 0; c < this.nCols; c++) {
         const cell = this.cells[r][c];
-        this.blocks.push(cell);
+        this.blocks.push(cell as MathBlock);
         if (!cell.parent) {
           cell.adopt(this, this.getEnd(R), 0);
         }
@@ -241,12 +281,13 @@ class Matrix extends MathCommand {
 
     this.rebuildDOM();
 
-    const currentRow = (cursor.parent as MatrixCell).row;
-    cursor.insAtLeftEnd(this.cells[currentRow][afterCol]);
+    const currentRow = (cursor.parent as unknown as MatrixCell).row;
+    cursor.insAtLeftEnd(this.cells[currentRow][afterCol] as MQNode);
+    cursor.controller.handle('edit');
   }
 
   addRow(afterRow: number, ctrlr: Controller) {
-    const currentCol = (ctrlr.cursor.parent as MatrixCell).col;
+    const currentCol = (ctrlr.cursor.parent as unknown as MatrixCell).col;
     this.nRows++;
 
     const newRow: MatrixCell[] = [];
@@ -265,7 +306,7 @@ class Matrix extends MathCommand {
     for (let r = 0; r < this.nRows; r++) {
       for (let c = 0; c < this.nCols; c++) {
         const cell = this.cells[r][c];
-        this.blocks.push(cell);
+        this.blocks.push(cell as MathBlock);
         if (!cell.parent) {
           cell.adopt(this, this.getEnd(R), 0);
         }
@@ -273,14 +314,15 @@ class Matrix extends MathCommand {
     }
 
     this.rebuildDOM();
-    ctrlr.cursor.insAtLeftEnd(this.cells[afterRow][currentCol]);
+    ctrlr.cursor.insAtLeftEnd(this.cells[afterRow][currentCol] as MQNode);
+    ctrlr.handle('edit');
   }
 
   deleteColumn(col: number, ctrlr: Controller) {
     if (this.nCols <= 1) return;
 
     const nextCol = col > 0 ? col - 1 : 0;
-    const currentRow = (ctrlr.cursor.parent as MatrixCell).row;
+    const currentRow = (ctrlr.cursor.parent as unknown as MatrixCell).row;
 
     for (let r = 0; r < this.nRows; r++) {
       this.cells[r][col].remove();
@@ -296,19 +338,20 @@ class Matrix extends MathCommand {
     this.blocks = [];
     for (let r = 0; r < this.nRows; r++) {
       for (let c = 0; c < this.nCols; c++) {
-        this.blocks.push(this.cells[r][c]);
+        this.blocks.push(this.cells[r][c] as MathBlock);
       }
     }
 
     this.rebuildDOM();
-    ctrlr.cursor.insAtRightEnd(this.cells[currentRow][nextCol]);
+    ctrlr.cursor.insAtRightEnd(this.cells[currentRow][nextCol] as MQNode);
+    ctrlr.handle('edit');
   }
 
   deleteRow(row: number, ctrlr: Controller) {
     if (this.nRows <= 1) return;
 
     const nextRow = row > 0 ? row - 1 : 0;
-    const currentCol = (ctrlr.cursor.parent as MatrixCell).col;
+    const currentCol = (ctrlr.cursor.parent as unknown as MatrixCell).col;
 
     for (let c = 0; c < this.nCols; c++) {
       this.cells[row][c].remove();
@@ -326,12 +369,13 @@ class Matrix extends MathCommand {
     this.blocks = [];
     for (let r = 0; r < this.nRows; r++) {
       for (let c = 0; c < this.nCols; c++) {
-        this.blocks.push(this.cells[r][c]);
+        this.blocks.push(this.cells[r][c] as MathBlock);
       }
     }
 
     this.rebuildDOM();
-    ctrlr.cursor.insAtRightEnd(this.cells[nextRow][currentCol]);
+    ctrlr.cursor.insAtRightEnd(this.cells[nextRow][currentCol] as MQNode);
+    ctrlr.handle('edit');
   }
 
   html() {
@@ -344,8 +388,14 @@ class Matrix extends MathCommand {
       for (let r = 0; r < this.nRows; r++) {
         const cellElements: Element[] = [];
         for (let c = 0; c < this.nCols; c++) {
+          const isFirstCol = c === 0;
+          const isLastCol = c === this.nCols - 1;
+          let cellClass = 'mq-matrix-cell';
+          if (isFirstCol) cellClass += ' mq-matrix-cell-first';
+          if (isLastCol) cellClass += ' mq-matrix-cell-last';
+          if (!isLastCol) cellClass += ' mq-matrix-cell-comma';
           cellElements.push(
-            h.block('span', { class: 'mq-matrix-cell' }, blocks[blockIdx++])
+            h.block('span', { class: cellClass }, blocks[blockIdx++])
           );
         }
         rows.push(h('span', { class: 'mq-matrix-row' }, cellElements));
@@ -453,8 +503,8 @@ class Matrix extends MathCommand {
       }
     }
 
-    this.upInto = this.cells[0][0];
-    this.downInto = this.cells[this.nRows - 1][0];
+    this.upInto = this.cells[0][0] as MQNode;
+    this.downInto = this.cells[this.nRows - 1][0] as MQNode;
   }
 
   parser(): Parser<MQNode | Fragment> {
@@ -493,7 +543,7 @@ class Matrix extends MathCommand {
         const cellContent = rows[r] && rows[r][c] ? rows[r][c].trim() : '';
         if (cellContent) {
           const parsed = latexMathParser.parse(cellContent);
-          parsed.children().adopt(this.cells[r][c], 0, 0);
+          parsed.children().adopt(this.cells[r][c] as MQNode, 0, 0);
         }
       }
     }
@@ -511,7 +561,7 @@ LatexCmds.vmatrix = Matrix.createDefault('vmatrix');
 LatexCmds.Vmatrix = Matrix.createDefault('Vmatrix');
 
 // Short commands for easier typing
-LatexCmds.mat = Matrix.createDefault('matrix');
+LatexCmds.mat = Matrix.createDefault('pmatrix');
 LatexCmds.pmat = Matrix.createDefault('pmatrix');
 LatexCmds.bmat = Matrix.createDefault('bmatrix');
 LatexCmds.Bmat = Matrix.createDefault('Bmatrix');
