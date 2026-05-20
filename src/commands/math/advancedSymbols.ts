@@ -153,12 +153,17 @@ LatexCmds.mathbb = class extends MathCommand {
   }
 };
 
+// The canonical sets of numbers. Each also has a doubled-letter input shortcut
+// (e.g. typing "RR" yields ℝ) registered in the autoCommands default in
+// basicSymbols.ts; the XX aliases below are what those shortcuts instantiate.
 LatexCmds.N =
+  LatexCmds.NN =
   LatexCmds.naturals =
   LatexCmds.Naturals =
     bindVanillaSymbol('\\mathbb{N}', '&#8469;', 'naturals');
 
 LatexCmds.P =
+  LatexCmds.PP =
   LatexCmds.primes =
   LatexCmds.Primes =
   LatexCmds.projective =
@@ -168,21 +173,25 @@ LatexCmds.P =
     bindVanillaSymbol('\\mathbb{P}', '&#8473;', 'P');
 
 LatexCmds.Z =
+  LatexCmds.ZZ =
   LatexCmds.integers =
   LatexCmds.Integers =
     bindVanillaSymbol('\\mathbb{Z}', '&#8484;', 'integers');
 
 LatexCmds.Q =
+  LatexCmds.QQ =
   LatexCmds.rationals =
   LatexCmds.Rationals =
     bindVanillaSymbol('\\mathbb{Q}', '&#8474;', 'rationals');
 
 LatexCmds.R =
+  LatexCmds.RR =
   LatexCmds.reals =
   LatexCmds.Reals =
     bindVanillaSymbol('\\mathbb{R}', '&#8477;', 'reals');
 
 LatexCmds.C =
+  LatexCmds.CC =
   LatexCmds.complex =
   LatexCmds.Complex =
   LatexCmds.complexes =
@@ -193,6 +202,7 @@ LatexCmds.C =
     bindVanillaSymbol('\\mathbb{C}', '&#8450;', 'complexes');
 
 LatexCmds.H =
+  LatexCmds.HH =
   LatexCmds.Hamiltonian =
   LatexCmds.quaternions =
   LatexCmds.Quaternions =

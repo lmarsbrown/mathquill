@@ -108,44 +108,40 @@ class MatrixCell extends MathBlock {
       case 'Backspace':
         if (this.isEmpty()) {
           e?.preventDefault();
-          if (this.row === 0 && matrix.nCols > 1) {
-            matrix.deleteColumn(this.col, ctrlr);
-          } else if (this.col === 0 && matrix.nRows > 1) {
-            matrix.deleteRow(this.row, ctrlr);
+          // Check if entire column is empty
+          if (matrix.isColumnEmpty(this.col)) {
+            if (this.col > 0 && matrix.nCols > 1) {
+              // Delete column if not first column
+              matrix.deleteColumn(this.col, ctrlr);
+            } else if (this.col === 0 && matrix.nRows > 1) {
+              // First column: delete row instead
+              matrix.deleteRow(this.row, ctrlr);
+            } else if (matrix.nRows === 1 && matrix.nCols === 1) {
+              // Last cell: delete entire matrix
+              const rightward = matrix[R];
+              ctrlr.cursor.insLeftOf(matrix);
+              matrix.remove();
+              ctrlr.cursor[R] = rightward;
+              ctrlr.cursor.parent.bubble(function (node: MQNode) {
+                node.reflow();
+                return undefined;
+              });
+            }
           } else if (this.col > 0) {
+            // Column not empty, just move to previous cell
             ctrlr.cursor.insAtRightEnd(
               matrix.cells[this.row][this.col - 1] as MQNode
             );
-          } else if (matrix.nRows === 1 && matrix.nCols === 1) {
-            const rightward = matrix[R];
-            ctrlr.cursor.insLeftOf(matrix);
-            matrix.remove();
-            ctrlr.cursor[R] = rightward;
-            ctrlr.cursor.parent.bubble(function (node: MQNode) {
-              node.reflow();
-              return undefined;
-            });
           }
           return;
         }
-        // If cursor is at start of non-empty cell
+        // If cursor is at start of non-empty cell, move to previous cell
         if (!ctrlr.cursor[L]) {
           e?.preventDefault();
-          if (this.row === 0 && matrix.nCols > 1) {
-            matrix.deleteColumn(this.col, ctrlr);
-          } else if (this.col > 0) {
+          if (this.col > 0) {
             ctrlr.cursor.insAtRightEnd(
               matrix.cells[this.row][this.col - 1] as MQNode
             );
-          } else if (matrix.nRows === 1 && matrix.nCols === 1) {
-            const rightward = matrix[R];
-            ctrlr.cursor.insLeftOf(matrix);
-            matrix.remove();
-            ctrlr.cursor[R] = rightward;
-            ctrlr.cursor.parent.bubble(function (node: MQNode) {
-              node.reflow();
-              return undefined;
-            });
           }
           return;
         }
@@ -230,6 +226,20 @@ class Matrix extends MathCommand {
     return (this.nRows * this.nCols) as 1;
   }
 
+  isColumnEmpty(col: number): boolean {
+    for (let r = 0; r < this.nRows; r++) {
+      if (!this.cells[r][col].isEmpty()) return false;
+    }
+    return true;
+  }
+
+  isRowEmpty(row: number): boolean {
+    for (let c = 0; c < this.nCols; c++) {
+      if (!this.cells[row][c].isEmpty()) return false;
+    }
+    return true;
+  }
+
   createBlocks() {
     this.cells = [];
     this.blocks = [];
@@ -245,7 +255,7 @@ class Matrix extends MathCommand {
     }
   }
 
-  rebuildDOM() {
+  rebuildDOM(opts?: CursorOptions) {
     const oldDOM = this.domFrag();
     this.html();
     const newEl = this.domFrag().oneElement();
@@ -256,7 +266,7 @@ class Matrix extends MathCommand {
 
     this.finalizeTree();
 
-    // Update empty state for all cells
+    // Update empty state for all cells and re-finalize content with options
     for (let r = 0; r < this.nRows; r++) {
       for (let c = 0; c < this.nCols; c++) {
         const cell = this.cells[r][c];
@@ -266,6 +276,13 @@ class Matrix extends MathCommand {
         } else {
           cell.domFrag().removeClass('mq-empty');
           cell.domFrag().removeClass('mq-matrix-cell-content-empty');
+        }
+        // Re-finalize cell content with options to preserve operator names
+        if (opts) {
+          cell.postOrder(function (node) {
+            node.finalizeTree(opts);
+            return undefined;
+          });
         }
       }
     }
@@ -294,7 +311,7 @@ class Matrix extends MathCommand {
       }
     }
 
-    this.rebuildDOM();
+    this.rebuildDOM(cursor.options);
 
     const currentRow = (cursor.parent as unknown as MatrixCell).row;
     cursor.insAtLeftEnd(this.cells[currentRow][afterCol] as MQNode);
@@ -327,7 +344,7 @@ class Matrix extends MathCommand {
       }
     }
 
-    this.rebuildDOM();
+    this.rebuildDOM(ctrlr.options);
     ctrlr.cursor.insAtLeftEnd(this.cells[afterRow][0] as MQNode);
     ctrlr.handle('edit');
   }
@@ -356,7 +373,7 @@ class Matrix extends MathCommand {
       }
     }
 
-    this.rebuildDOM();
+    this.rebuildDOM(ctrlr.options);
     ctrlr.cursor.insAtRightEnd(this.cells[currentRow][nextCol] as MQNode);
     ctrlr.handle('edit');
   }
@@ -386,7 +403,7 @@ class Matrix extends MathCommand {
       }
     }
 
-    this.rebuildDOM();
+    this.rebuildDOM(ctrlr.options);
     ctrlr.cursor.insAtRightEnd(this.cells[nextRow][this.nCols - 1] as MQNode);
     ctrlr.handle('edit');
   }

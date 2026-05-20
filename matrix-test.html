@@ -91,10 +91,9 @@
           <kbd>Ctrl</kbd>+<kbd>,</kbd> - Insert a new column after current
         </li>
         <li><kbd>Enter</kbd> - Add a new row</li>
-        <li><kbd>Backspace</kbd> on empty cell in top row - Delete column</li>
-        <li><kbd>Backspace</kbd> on empty cell in first column - Delete row</li>
         <li>
-          <kbd>Backspace</kbd> on empty cell otherwise - Move to left cell
+          <kbd>Backspace</kbd> on empty cell - Delete column if entire column is
+          empty (or delete row if in first column)
         </li>
       </ul>
     </div>
@@ -167,6 +166,7 @@
         window.mathField = MQ.MathField(el, {
           spaceBehavesLikeTab: true,
           matrixCommaSeparators: showCommas,
+          autoOperatorNames: 'sin cos tan log ln exp',
           handlers: {
             edit: function () {
               document.getElementById('latex').textContent = mathField.latex();

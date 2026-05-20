@@ -279,7 +279,17 @@ function bindVariable(
 }
 
 Options.prototype.autoCommands = {
-  _maxLength: 0,
+  // doubled capital letters auto-convert to the canonical blackboard-bold sets,
+  // e.g. typing "RR" yields ℝ. The matching \mathbb symbols are defined in
+  // advancedSymbols.ts.
+  _maxLength: 2,
+  NN: 1,
+  PP: 1,
+  ZZ: 1,
+  QQ: 1,
+  RR: 1,
+  CC: 1,
+  HH: 1,
 };
 baseOptionProcessors.autoCommands = function (cmds: string | undefined) {
   if (typeof cmds !== 'string' || !/^[a-z]+(?: [a-z]+)*$/i.test(cmds)) {
