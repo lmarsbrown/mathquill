@@ -343,6 +343,83 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     }
   }
 
+  // The control sequence + opening brace of a bold group, used by the
+  // bold-toggle helpers below.
+  const MATHBF_OPEN = '\\mathbf{';
+
+  /**
+   * Find the index just past the '}' that closes a group opened at
+   * `latex[openIdx ... openIdx+prefixLen-1]` (the prefix being e.g.
+   * "\mathbf{"). Respects nested braces.
+   * @param latex the LaTeX string
+   * @param contentStart index of the first char inside the group (just
+   *   after the opening brace)
+   * @returns index just past the matching '}', or -1 if braces are unbalanced
+   */
+  function indexPastGroup(latex: string, contentStart: number): number {
+    let depth = 1;
+    for (let i = contentStart; i < latex.length; i++) {
+      const ch = latex[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return i + 1;
+      }
+    }
+    return -1; // unbalanced
+  }
+
+  /**
+   * Remove every `\mathbf{...}` wrapper from a LaTeX string, returning the
+   * plain (unbolded) inner content. Repeats until none remain so nested
+   * bold is fully flattened.
+   * @param latex source LaTeX
+   * @returns LaTeX with all `\mathbf{...}` wrappers unwrapped
+   */
+  function stripMathbf(latex: string): string {
+    let idx = latex.indexOf(MATHBF_OPEN);
+    while (idx !== -1) {
+      const contentStart = idx + MATHBF_OPEN.length;
+      const end = indexPastGroup(latex, contentStart);
+      if (end === -1) {
+        console.warn(
+          'MathQuill toggleBold: unbalanced \\mathbf braces in',
+          latex
+        );
+        break;
+      }
+      // Replace `\mathbf{INNER}` with `INNER` (end-1 is the closing brace).
+      const inner = latex.slice(contentStart, end - 1);
+      latex = latex.slice(0, idx) + inner + latex.slice(end);
+      idx = latex.indexOf(MATHBF_OPEN);
+    }
+    return latex;
+  }
+
+  /**
+   * Test whether a LaTeX string is composed entirely of one or more
+   * consecutive `\mathbf{...}` groups with no other (non-whitespace)
+   * content. Used to decide whether a selection is fully bold.
+   * @param latex source LaTeX (typically a selection's joined latex)
+   * @returns true if every part of the selection is bold
+   */
+  function isFullyBoldLatex(latex: string): boolean {
+    let i = 0;
+    let matched = 0;
+    while (i < latex.length) {
+      if (latex[i] === ' ') {
+        i++;
+        continue;
+      }
+      if (latex.slice(i, i + MATHBF_OPEN.length) !== MATHBF_OPEN) return false;
+      const end = indexPastGroup(latex, i + MATHBF_OPEN.length);
+      if (end === -1) return false; // unbalanced → treat as not-fully-bold
+      i = end;
+      matched++;
+    }
+    return matched > 0;
+  }
+
   abstract class EditableField
     extends AbstractMathQuill
     implements IEditableField
@@ -408,6 +485,142 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     }
     clearSelection() {
       this.__controller.cursor.clearSelection();
+      return this;
+    }
+
+    /**
+     * Toggle bold (`\mathbf`) on the current selection.
+     * - No selection: no-op.
+     * - Selection not bold, or only partly bold: wrap the whole selection in a
+     *   single `\mathbf{...}` (any nested `\mathbf` is flattened first).
+     * - Selection fully bold: remove the bold. This covers a selection that
+     *   *is* one or more `\mathbf{...}` nodes, and a selection made from inside
+     *   a `\mathbf` block (which is split so only the selected part unbolds).
+     * The affected content is re-selected so repeated toggles flip it back.
+     * @returns this (for chaining)
+     */
+    toggleBold() {
+      const ctrlr = this.__controller;
+      const cursor = ctrlr.cursor;
+      const sel = cursor.selection;
+      if (!sel) {
+        // No selection — toggle bold "mode" at the caret.
+        cursor.show();
+        const caretBlock = cursor.parent;
+        const caretBold = caretBlock.parent;
+        if (caretBold && caretBold.ctrlSeq === '\\mathbf') {
+          // Caret sits inside a \mathbf block.
+          if (caretBlock.isEmpty()) {
+            // Empty \mathbf{} (e.g. just inserted) — remove it, leaving the
+            // caret where the node was. selectChildren + deleteSelection keeps
+            // the cursor pointers consistent; bubbling reflow fires 'edit'.
+            cursor.insLeftOf(caretBold);
+            const parentBlock = cursor.parent;
+            cursor.selection = parentBlock.selectChildren(caretBold, caretBold);
+            cursor.deleteSelection();
+            parentBlock.bubble(function (node) {
+              node.reflow();
+              return undefined;
+            });
+          } else {
+            // Non-empty bold — exit it so further typing is unbolded.
+            cursor.insRightOf(caretBold);
+          }
+        } else {
+          // Not in a \mathbf — insert an empty one with the caret inside so the
+          // user can start typing bold. createLeftOf's placeCursor lands the
+          // caret in the empty block; its finalizeInsert bubbles reflow → 'edit'.
+          const styleNode = new Style(
+            '\\mathbf',
+            'b',
+            { class: 'mq-font' },
+            'Bold Font'
+          );
+          styleNode.createLeftOf(cursor);
+        }
+        ctrlr.scrollHoriz();
+        if (ctrlr.blurred) cursor.hide().parent.blur(cursor);
+        return this;
+      }
+
+      const selLeft = sel.getEnd(L);
+      const selRight = sel.getEnd(R);
+      const innerBlock = selLeft.parent; // common parent block of the selection
+      const boldNode = innerBlock.parent; // node wrapping that block, if any
+
+      // Scenario A: the selection lives *inside* a \mathbf block. Always an
+      // unbold; if only part of the block is selected the node is split so the
+      // surrounding text stays bold.
+      const insideBold = !!boldNode && boldNode.ctrlSeq === '\\mathbf';
+
+      // LaTeX pieces to write back, left→right. `mid` is the (un)bolded
+      // selection; left/right are bold remnants used only in the split case.
+      let leftLatex = '';
+      let rightLatex = '';
+      let mid: string;
+      let delLeft: MQNode; // left end of the node run we delete
+      let delRight: MQNode; // right end of the node run we delete
+
+      if (insideBold) {
+        const boldM = boldNode as MQNode;
+        if (boldM.parent && boldM.parent.ctrlSeq === '\\mathbf') {
+          // Degenerate nested-bold; splitting only the inner node leaves the
+          // outer bold in place. A second toggle resolves it.
+          console.warn('MathQuill toggleBold: nested \\mathbf encountered');
+        }
+        delLeft = boldM;
+        delRight = boldM;
+        // Bold remnants to the left / right of the selection within the block.
+        for (let n = innerBlock.getEnd(L); n && n !== selLeft; n = n[R])
+          leftLatex += n.latex();
+        for (let n = selRight[R]; n; n = n[R]) rightLatex += n.latex();
+        mid = stripMathbf(sel.join('latex'));
+      } else {
+        delLeft = selLeft;
+        delRight = selRight;
+        const selLatex = sel.join('latex');
+        // Fully bold → unbold; otherwise bold the whole selection as one group.
+        mid = isFullyBoldLatex(selLatex)
+          ? stripMathbf(selLatex)
+          : '\\mathbf{' + stripMathbf(selLatex) + '}';
+      }
+
+      // Delete the run [delLeft, delRight] via a temporary selection, then
+      // re-insert left→right. insLeftOf reparents the cursor to the block that
+      // owns the run (the grandparent block in the split case).
+      //
+      // show() first: while a selection is active the cursor is hidden, which
+      // detaches its DOM frag (replaced with an empty one). Without re-showing
+      // it, the writeLatex insertions below — which land relative to
+      // cursor.domFrag() — would be orphaned: the tree updates (so .latex() is
+      // correct) but nothing renders until the field is rebuilt.
+      cursor.show();
+      cursor.clearSelection();
+      cursor.insLeftOf(delLeft);
+      const block = cursor.parent;
+      cursor.selection = block.selectChildren(delLeft, delRight);
+      cursor.deleteSelection(); // removes the run; cursor sits in the gap
+
+      // Each writeLatex inserts before the cursor element, which stays at the
+      // right edge — so pieces land in order. We capture the node boundaries
+      // around `mid` to re-select exactly the (un)bolded part afterwards.
+      if (leftLatex) block.writeLatex(cursor, '\\mathbf{' + leftLatex + '}');
+      const beforeMid = cursor[L]; // node just left of mid (or 0 at block start)
+      block.writeLatex(cursor, mid);
+      const midEnd = cursor[L]; // right end of mid
+      if (rightLatex) block.writeLatex(cursor, '\\mathbf{' + rightLatex + '}');
+
+      const midStart = beforeMid ? beforeMid[R] : block.getEnd(L);
+
+      // Re-select [midStart, midEnd] (mirrors the tail of Cursor::select).
+      if (midStart && midEnd) {
+        cursor.hide().selection = block.selectChildren(midStart, midEnd);
+        cursor.insRightOf(midEnd);
+        cursor.selectionChanged();
+      }
+
+      ctrlr.scrollHoriz();
+      if (ctrlr.blurred) cursor.hide().parent.blur(cursor);
       return this;
     }
 

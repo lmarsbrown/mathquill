@@ -174,6 +174,7 @@ declare namespace MathQuill {
       moveToRightEnd: () => void;
       cmd: (latex: string) => void;
       write: (latex: string) => void;
+      toggleBold: () => void;
       keystroke: (key: string, evt?: KeyboardEvent) => void;
       typedText: (text: string) => void;
       clearSelection: () => void;
