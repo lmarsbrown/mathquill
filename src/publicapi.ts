@@ -343,10 +343,6 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     }
   }
 
-  // The control sequence + opening brace of a bold group, used by the
-  // bold-toggle helpers below.
-  const MATHBF_OPEN = '\\mathbf{';
-
   /**
    * Find the index just past the '}' that closes a group opened at
    * `latex[openIdx ... openIdx+prefixLen-1]` (the prefix being e.g.
@@ -370,40 +366,42 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
   }
 
   /**
-   * Remove every `\mathbf{...}` wrapper from a LaTeX string, returning the
-   * plain (unbolded) inner content. Repeats until none remain so nested
-   * bold is fully flattened.
+   * Remove every `<openTok>...}` wrapper from a LaTeX string, returning the
+   * plain (unwrapped) inner content. Repeats until none remain so nested
+   * wrappers are fully flattened.
    * @param latex source LaTeX
-   * @returns LaTeX with all `\mathbf{...}` wrappers unwrapped
+   * @param openTok the wrapper's control sequence + opening brace, e.g. "\\mathbf{"
+   * @returns LaTeX with all `<openTok>...}` wrappers unwrapped
    */
-  function stripMathbf(latex: string): string {
-    let idx = latex.indexOf(MATHBF_OPEN);
+  function stripWrapper(latex: string, openTok: string): string {
+    let idx = latex.indexOf(openTok);
     while (idx !== -1) {
-      const contentStart = idx + MATHBF_OPEN.length;
+      const contentStart = idx + openTok.length;
       const end = indexPastGroup(latex, contentStart);
       if (end === -1) {
         console.warn(
-          'MathQuill toggleBold: unbalanced \\mathbf braces in',
+          'MathQuill toggleWrap: unbalanced ' + openTok + ' braces in',
           latex
         );
         break;
       }
-      // Replace `\mathbf{INNER}` with `INNER` (end-1 is the closing brace).
+      // Replace `<openTok>INNER}` with `INNER` (end-1 is the closing brace).
       const inner = latex.slice(contentStart, end - 1);
       latex = latex.slice(0, idx) + inner + latex.slice(end);
-      idx = latex.indexOf(MATHBF_OPEN);
+      idx = latex.indexOf(openTok);
     }
     return latex;
   }
 
   /**
    * Test whether a LaTeX string is composed entirely of one or more
-   * consecutive `\mathbf{...}` groups with no other (non-whitespace)
-   * content. Used to decide whether a selection is fully bold.
+   * consecutive `<openTok>...}` groups with no other (non-whitespace)
+   * content. Used to decide whether a selection is fully wrapped.
    * @param latex source LaTeX (typically a selection's joined latex)
-   * @returns true if every part of the selection is bold
+   * @param openTok the wrapper's control sequence + opening brace, e.g. "\\mathbf{"
+   * @returns true if every part of the selection is wrapped
    */
-  function isFullyBoldLatex(latex: string): boolean {
+  function isFullyWrapped(latex: string, openTok: string): boolean {
     let i = 0;
     let matched = 0;
     while (i < latex.length) {
@@ -411,8 +409,8 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
         i++;
         continue;
       }
-      if (latex.slice(i, i + MATHBF_OPEN.length) !== MATHBF_OPEN) return false;
-      const end = indexPastGroup(latex, i + MATHBF_OPEN.length);
+      if (latex.slice(i, i + openTok.length) !== openTok) return false;
+      const end = indexPastGroup(latex, i + openTok.length);
       if (end === -1) return false; // unbalanced → treat as not-fully-bold
       i = end;
       matched++;
@@ -489,26 +487,32 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     }
 
     /**
-     * Toggle bold (`\mathbf`) on the current selection.
-     * - No selection: no-op.
-     * - Selection not bold, or only partly bold: wrap the whole selection in a
-     *   single `\mathbf{...}` (any nested `\mathbf` is flattened first).
-     * - Selection fully bold: remove the bold. This covers a selection that
-     *   *is* one or more `\mathbf{...}` nodes, and a selection made from inside
-     *   a `\mathbf` block (which is split so only the selected part unbolds).
+     * Toggle a single-block wrapper command (e.g. `\mathbf` or `\hat`) on the
+     * current selection. Generic over the wrapper so bold, hat, etc. share one
+     * implementation; `toggleBold` / `toggleHat` delegate here.
+     * - No selection: toggle the wrapper "mode" at the caret (enter/exit an
+     *   empty wrapper block so the next typing is wrapped/unwrapped).
+     * - Selection not wrapped, or only partly: wrap the whole selection in a
+     *   single `<ctrlSeq>{...}` (any nested same-wrapper is flattened first).
+     * - Selection fully wrapped: remove the wrapper. This covers a selection
+     *   that *is* one or more wrapper nodes, and a selection made from inside a
+     *   wrapper block (which is split so only the selected part unwraps).
      * The affected content is re-selected so repeated toggles flip it back.
+     * @param ctrlSeq the wrapper's control sequence, e.g. `\\mathbf` or `\\hat`
+     * @param makeNode factory returning a fresh wrapper node (used in caret mode)
      * @returns this (for chaining)
      */
-    toggleBold() {
+    toggleWrap(ctrlSeq: string, makeNode: () => MQNode) {
       const ctrlr = this.__controller;
       const cursor = ctrlr.cursor;
       const sel = cursor.selection;
+      const openTok = ctrlSeq + '{'; // wrapper open token, e.g. "\\mathbf{"
       if (!sel) {
         // No selection — toggle bold "mode" at the caret.
         cursor.show();
         const caretBlock = cursor.parent;
         const caretBold = caretBlock.parent;
-        if (caretBold && caretBold.ctrlSeq === '\\mathbf') {
+        if (caretBold && caretBold.ctrlSeq === ctrlSeq) {
           // Caret sits inside a \mathbf block.
           if (caretBlock.isEmpty()) {
             // Empty \mathbf{} (e.g. just inserted) — remove it, leaving the
@@ -530,13 +534,8 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
           // Not in a \mathbf — insert an empty one with the caret inside so the
           // user can start typing bold. createLeftOf's placeCursor lands the
           // caret in the empty block; its finalizeInsert bubbles reflow → 'edit'.
-          const styleNode = new Style(
-            '\\mathbf',
-            'b',
-            { class: 'mq-font' },
-            'Bold Font'
-          );
-          styleNode.createLeftOf(cursor);
+          const wrapNode = makeNode();
+          wrapNode.createLeftOf(cursor);
         }
         ctrlr.scrollHoriz();
         if (ctrlr.blurred) cursor.hide().parent.blur(cursor);
@@ -551,7 +550,7 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
       // Scenario A: the selection lives *inside* a \mathbf block. Always an
       // unbold; if only part of the block is selected the node is split so the
       // surrounding text stays bold.
-      const insideBold = !!boldNode && boldNode.ctrlSeq === '\\mathbf';
+      const insideBold = !!boldNode && boldNode.ctrlSeq === ctrlSeq;
 
       // LaTeX pieces to write back, left→right. `mid` is the (un)bolded
       // selection; left/right are bold remnants used only in the split case.
@@ -563,10 +562,12 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
 
       if (insideBold) {
         const boldM = boldNode as MQNode;
-        if (boldM.parent && boldM.parent.ctrlSeq === '\\mathbf') {
+        if (boldM.parent && boldM.parent.ctrlSeq === ctrlSeq) {
           // Degenerate nested-bold; splitting only the inner node leaves the
           // outer bold in place. A second toggle resolves it.
-          console.warn('MathQuill toggleBold: nested \\mathbf encountered');
+          console.warn(
+            'MathQuill toggleWrap: nested ' + ctrlSeq + ' encountered'
+          );
         }
         delLeft = boldM;
         delRight = boldM;
@@ -574,15 +575,15 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
         for (let n = innerBlock.getEnd(L); n && n !== selLeft; n = n[R])
           leftLatex += n.latex();
         for (let n = selRight[R]; n; n = n[R]) rightLatex += n.latex();
-        mid = stripMathbf(sel.join('latex'));
+        mid = stripWrapper(sel.join('latex'), openTok);
       } else {
         delLeft = selLeft;
         delRight = selRight;
         const selLatex = sel.join('latex');
-        // Fully bold → unbold; otherwise bold the whole selection as one group.
-        mid = isFullyBoldLatex(selLatex)
-          ? stripMathbf(selLatex)
-          : '\\mathbf{' + stripMathbf(selLatex) + '}';
+        // Fully wrapped → unwrap; otherwise wrap the whole selection as one group.
+        mid = isFullyWrapped(selLatex, openTok)
+          ? stripWrapper(selLatex, openTok)
+          : openTok + stripWrapper(selLatex, openTok) + '}';
       }
 
       // Delete the run [delLeft, delRight] via a temporary selection, then
@@ -604,11 +605,11 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
       // Each writeLatex inserts before the cursor element, which stays at the
       // right edge — so pieces land in order. We capture the node boundaries
       // around `mid` to re-select exactly the (un)bolded part afterwards.
-      if (leftLatex) block.writeLatex(cursor, '\\mathbf{' + leftLatex + '}');
+      if (leftLatex) block.writeLatex(cursor, openTok + leftLatex + '}');
       const beforeMid = cursor[L]; // node just left of mid (or 0 at block start)
       block.writeLatex(cursor, mid);
       const midEnd = cursor[L]; // right end of mid
-      if (rightLatex) block.writeLatex(cursor, '\\mathbf{' + rightLatex + '}');
+      if (rightLatex) block.writeLatex(cursor, openTok + rightLatex + '}');
 
       const midStart = beforeMid ? beforeMid[R] : block.getEnd(L);
 
@@ -622,6 +623,28 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
       ctrlr.scrollHoriz();
       if (ctrlr.blurred) cursor.hide().parent.blur(cursor);
       return this;
+    }
+
+    /**
+     * Toggle `\mathbf` bold on the current selection. See toggleWrap.
+     * @returns this (for chaining)
+     */
+    toggleBold() {
+      return this.toggleWrap(
+        '\\mathbf',
+        () => new Style('\\mathbf', 'b', { class: 'mq-font' }, 'Bold Font')
+      );
+    }
+
+    /**
+     * Toggle `\hat` accent on the current selection. See toggleWrap.
+     * @returns this (for chaining)
+     */
+    toggleHat() {
+      return this.toggleWrap(
+        '\\hat',
+        () => new (LatexCmds as LatexCmdsAny).hat()
+      );
     }
 
     moveToDirEnd(dir: Direction) {
