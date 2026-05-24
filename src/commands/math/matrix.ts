@@ -108,37 +108,42 @@ class MatrixCell extends MathBlock {
       case 'Backspace':
         if (this.isEmpty()) {
           e?.preventDefault();
-          // Check if entire column is empty
-          if (matrix.isColumnEmpty(this.col)) {
-            if (this.col > 0 && matrix.nCols > 1) {
-              // Delete column if not first column
-              matrix.deleteColumn(this.col, ctrlr);
-            } else if (this.col === 0 && matrix.nRows > 1) {
-              // First column: delete row instead
+          if (matrix.nRows === 1 && matrix.nCols === 1) {
+            // Last cell: delete entire matrix
+            const rightward = matrix[R];
+            ctrlr.cursor.insLeftOf(matrix);
+            matrix.remove();
+            ctrlr.cursor[R] = rightward;
+            ctrlr.cursor.parent.bubble(function (node: MQNode) {
+              node.reflow();
+              return undefined;
+            });
+          } else if (this.col === 0) {
+            // First column: delete the row (even if it has content)
+            if (matrix.nRows > 1) {
               matrix.deleteRow(this.row, ctrlr);
-            } else if (matrix.nRows === 1 && matrix.nCols === 1) {
-              // Last cell: delete entire matrix
-              const rightward = matrix[R];
-              ctrlr.cursor.insLeftOf(matrix);
-              matrix.remove();
-              ctrlr.cursor[R] = rightward;
-              ctrlr.cursor.parent.bubble(function (node: MQNode) {
-                node.reflow();
-                return undefined;
-              });
             }
-          } else if (this.col > 0) {
-            // Column not empty, just move to previous cell
+          } else if (matrix.nCols > 1 && matrix.isColumnEmpty(this.col)) {
+            // Non-first column, entire column empty: delete column
+            matrix.deleteColumn(this.col, ctrlr);
+          } else {
+            // Otherwise just move to previous cell
             ctrlr.cursor.insAtRightEnd(
               matrix.cells[this.row][this.col - 1] as MQNode
             );
           }
           return;
         }
-        // If cursor is at start of non-empty cell, move to previous cell
+        // If cursor is at start of non-empty cell
         if (!ctrlr.cursor[L]) {
           e?.preventDefault();
-          if (this.col > 0) {
+          if (this.col === 0) {
+            // First column: delete the row (even if it has content)
+            if (matrix.nRows > 1) {
+              matrix.deleteRow(this.row, ctrlr);
+            }
+          } else {
+            // Otherwise move to previous cell
             ctrlr.cursor.insAtRightEnd(
               matrix.cells[this.row][this.col - 1] as MQNode
             );
