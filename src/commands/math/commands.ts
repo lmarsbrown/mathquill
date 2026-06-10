@@ -91,6 +91,30 @@ var SVG_SYMBOLS = {
   },
 };
 
+/**
+ * Internal zero-width marker used by `toggleWrap` to locate post-rewrite
+ * selection boundaries when normalising `\mathbf` around delimiters. Two
+ * variants (`\mqSelL` / `\mqSelR`) are inserted into the latex written during
+ * normalisation and removed immediately afterwards in the same call — they
+ * never persist in saved latex. Not part of the public command surface; users
+ * never type these directly. Renders as an empty span so it occupies no space.
+ */
+class _SelMarker extends MQSymbol {
+  constructor(ctrlSeq: string) {
+    super(ctrlSeq, h('span', { class: 'mq-sel-marker' }));
+  }
+}
+LatexCmds.mqSelL = class extends _SelMarker {
+  constructor() {
+    super('\\mqSelL');
+  }
+};
+LatexCmds.mqSelR = class extends _SelMarker {
+  constructor() {
+    super('\\mqSelR');
+  }
+};
+
 class Style extends MathCommand {
   shouldNotSpeakDelimiters: boolean | undefined;
 

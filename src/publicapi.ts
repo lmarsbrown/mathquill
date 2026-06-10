@@ -418,6 +418,158 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     return matched > 0;
   }
 
+  /**
+   * Walk up from `innerBlock`'s parent looking for an enclosing `\mathbf` (or
+   * other wrapper with `ctrlSeq`), allowing only `Bracket` nodes on the path
+   * between. Used by `toggleWrap` to detect the "selection inside `\left…
+   * \right` inside `\mathbf`" case that the flat scenario-A path can't handle.
+   *
+   * Returns `{ M, brackets }` with `brackets` ordered outer→inner (the bracket
+   * immediately inside `M` first, the bracket immediately containing
+   * `innerBlock` last). Returns `null` if no qualifying `\mathbf` ancestor
+   * exists or if the path crosses an unsupported node (e.g. a fraction).
+   *
+   * @param innerBlock the block directly containing the selection
+   * @param ctrlSeq    the wrapper's control sequence (`'\\mathbf'`)
+   */
+  function gatherDelimPath(
+    innerBlock: MQNode,
+    ctrlSeq: string
+  ): { M: MQNode; brackets: MQNode[] } | null {
+    const brackets: MQNode[] = [];
+    let cmd: MQNode | 0 | undefined = innerBlock.parent;
+    while (cmd) {
+      if (cmd.ctrlSeq === ctrlSeq) {
+        // Continue climbing past this mathbf to find any *outer* mathbf; if
+        // present, the brackets between this one and the outer one would also
+        // need pushing. For v1 we only normalise the innermost-enclosing
+        // mathbf; an outer mathbf with no further brackets on the path is
+        // harmless (it still wraps everything), and an outer mathbf *with*
+        // brackets on the path is a rare nested case left for a follow-up.
+        return { M: cmd, brackets };
+      }
+      if (!(cmd instanceof Bracket)) return null;
+      brackets.unshift(cmd);
+      const parentBlock: MQNode | 0 | undefined = cmd.parent;
+      if (!parentBlock) return null;
+      cmd = parentBlock.parent;
+    }
+    return null;
+  }
+
+  /**
+   * Build the normalised LaTeX that replaces an outermost `\mathbf` ancestor
+   * `M` so the rewrite invariant holds: `\mathbf` never wraps a `\left…\right`
+   * pair; instead it sits around runs of content *inside* each delimiter. The
+   * selection (which is being unbolded) is emitted unwrapped between two
+   * marker tokens so the caller can re-establish it after `writeLatex`.
+   *
+   * Output shape, unrolling from outermost to innermost:
+   *   [`\mathbf{leftSibs_M}`]  `\left(` [`\mathbf{leftSibs_B1}`] `\left(` …
+   *      [`\mathbf{leftSibs_inner}`]  `\mqSelL` <sel> `\mqSelR`
+   *      [`\mathbf{rightSibs_inner}`] … `\right)` [`\mathbf{rightSibs_B1}`]
+   *      `\right)` [`\mathbf{rightSibs_M}`]
+   * Bracketed `[…]` parts are omitted when the corresponding sibling run is
+   * empty so we don't produce empty `\mathbf{}` wrappers.
+   *
+   * @param M         the outermost `\mathbf` ancestor (a Style node)
+   * @param brackets  bracket path outer→inner from `gatherDelimPath`
+   * @param selLeft   leftmost selected sibling within the innermost block
+   * @param selRight  rightmost selected sibling within the innermost block
+   * @param openTok   `ctrlSeq + '{'` (e.g. `'\\mathbf{'`)
+   */
+  function buildNormalizedMathbfLatex(
+    M: MQNode,
+    brackets: MQNode[],
+    selLeft: MQNode,
+    selRight: MQNode,
+    openTok: string
+  ): string {
+    // Wraps a sibling-run's latex in the wrapper, or returns '' if the run is
+    // empty (avoids \mathbf{} which would be a no-op but uglier in saved latex).
+    const wrap = (s: string) => (s ? openTok + s + '}' : '');
+
+    // Emit the latex for a single level of the recursion. `block` is the
+    // MathBlock we're currently inside; `depth` is the index into `brackets`
+    // of the next bracket to descend through (or === brackets.length when at
+    // innerBlock).
+    const emit = (block: MQNode, depth: number): string => {
+      if (depth === brackets.length) {
+        // Leaf: emit left-of-sel as bold, marker + unwrapped sel + marker,
+        // right-of-sel as bold.
+        let leftLat = '';
+        for (let n = block.getEnd(L); n && n !== selLeft; n = n[R]!)
+          leftLat += n.latex();
+        let rightLat = '';
+        for (let n = selRight[R]; n; n = n[R]!) rightLat += n.latex();
+        let selLat = '';
+        for (let n: MQNode | 0 = selLeft; n; n = n[R]!) {
+          selLat += n.latex();
+          if (n === selRight) break;
+        }
+        // Strip any inner \mathbf from the selection content — the user is
+        // unbolding, and stale inner wrappers would defeat that.
+        const selUnwrapped = stripWrapper(selLat, openTok);
+        // Trailing space after each marker terminates the LaTeX parser's
+        // greedy [a-z]+ command-name match — without it `\mqSelLe` would be
+        // read as one unknown command name instead of marker + `e`.
+        return (
+          wrap(leftLat) +
+          '\\mqSelL ' +
+          selUnwrapped +
+          '\\mqSelR ' +
+          wrap(rightLat)
+        );
+      }
+      const br = brackets[depth] as any; // Bracket — has `.sides[L|R].ctrlSeq`
+      let leftLat = '';
+      for (let n = block.getEnd(L); n && n !== br; n = n[R]!)
+        leftLat += n.latex();
+      let rightLat = '';
+      for (let n = br[R]; n; n = n[R]!) rightLat += n.latex();
+      const open = '\\left' + br.sides[L].ctrlSeq;
+      const close = '\\right' + br.sides[R].ctrlSeq;
+      // Bracket always has an inner block (its single child block), so
+      // getEnd(L) is non-zero; assert away the NodeRef-vs-MQNode union.
+      const inner = emit(br.getEnd(L) as MQNode, depth + 1);
+      return wrap(leftLat) + open + inner + close + wrap(rightLat);
+    };
+
+    // M is a Style (\mathbf) node with one block, so getEnd(L) is non-zero.
+    return emit(M.getEnd(L) as MQNode, 0);
+  }
+
+  /**
+   * Depth-first search for a descendant of `root` with the given `ctrlSeq`.
+   * Used to locate marker nodes inserted during `\mathbf` normalisation.
+   * @returns the first matching node, or `null` if none found
+   */
+  function findDescendantByCtrlSeq(
+    root: MQNode,
+    ctrlSeq: string
+  ): MQNode | null {
+    let found: MQNode | null = null;
+    const walk = (node: MQNode): boolean => {
+      if (node.ctrlSeq === ctrlSeq) {
+        found = node;
+        return false;
+      }
+      const leftEnd = node.getEnd(L);
+      const rightEnd = node.getEnd(R);
+      if (leftEnd) {
+        let child: MQNode | 0 = leftEnd;
+        while (child) {
+          if (!walk(child)) return false;
+          if (child === rightEnd) break;
+          child = child[R]!;
+        }
+      }
+      return found === null;
+    };
+    walk(root);
+    return found;
+  }
+
   abstract class EditableField
     extends AbstractMathQuill
     implements IEditableField
@@ -551,6 +703,91 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
       // unbold; if only part of the block is selected the node is split so the
       // surrounding text stays bold.
       const insideBold = !!boldNode && boldNode.ctrlSeq === ctrlSeq;
+
+      // Scenario A': selection is inside one or more \left…\right brackets
+      // that are themselves inside a \mathbf. The flat scenario-A split can't
+      // express the result without producing illegal mid-delimiter latex
+      // (\left and \right must be paired in the same group). \mathbf doesn't
+      // visibly affect delimiters anyway, so we normalise by pushing the
+      // \mathbf *inside* the brackets — that yields a tree where the
+      // selection's innerBlock.parent IS a \mathbf and scenario A's logic
+      // applies recursively at each delimiter level. Only applies to
+      // \mathbf (\hat etc. visibly bracket their argument so the same
+      // push-inside rewrite would change the user's expression).
+      if (ctrlSeq === '\\mathbf' && !insideBold) {
+        const path = gatherDelimPath(innerBlock, ctrlSeq);
+        if (path) {
+          // Build the normalised latex with marker tokens straddling the
+          // (unwrapped) selection at the deepest level.
+          const normalizedLatex = buildNormalizedMathbfLatex(
+            path.M,
+            path.brackets,
+            selLeft,
+            selRight,
+            openTok
+          );
+
+          // Replace the outermost \mathbf ancestor M with the normalised
+          // latex via the same delete-then-writeLatex pattern scenario A
+          // uses (keeps DOM in sync without manual reflow plumbing).
+          cursor.show();
+          cursor.clearSelection();
+          cursor.insLeftOf(path.M);
+          const writeBlock = cursor.parent;
+          cursor.selection = writeBlock.selectChildren(path.M, path.M);
+          cursor.deleteSelection();
+          writeBlock.writeLatex(cursor, normalizedLatex);
+
+          // Locate the marker nodes and re-establish the selection between
+          // them, then disown the markers so they never persist.
+          const root = ctrlr.root;
+          const markerL = findDescendantByCtrlSeq(root, '\\mqSelL');
+          const markerR = findDescendantByCtrlSeq(root, '\\mqSelR');
+          if (markerL && markerR && markerL.parent === markerR.parent) {
+            const newInnerBlock = markerL.parent;
+            // selL/selR are the new selection endpoints — the siblings just
+            // *inside* of each marker. If the selection is empty (markers
+            // adjacent) they'll coincide with the opposite marker; we
+            // handle that below.
+            const newSelL = markerL[R];
+            const newSelR = markerR[L];
+            const emptySel = newSelL === markerR || newSelR === markerL;
+            // Remove markers from the tree + DOM. Doing this before
+            // selecting means the L/R pointers we captured above are now
+            // stale (markerL[R] could be the disowned node), so we cache
+            // them first.
+            markerL.remove();
+            markerR.remove();
+            if (!emptySel && newSelL && newSelR) {
+              cursor.hide().selection = newInnerBlock.selectChildren(
+                newSelL,
+                newSelR
+              );
+              cursor.insRightOf(newSelR);
+              cursor.selectionChanged();
+            } else {
+              // Empty selection — place caret where the markers were. Both
+              // markers were adjacent, so cursor goes between their former
+              // siblings (now adjacent in the tree).
+              if (newSelL) cursor.insLeftOf(newSelL);
+              else if (newSelR) cursor.insRightOf(newSelR);
+              else cursor.insAtRightEnd(newInnerBlock);
+            }
+          } else {
+            // Shouldn't happen — writeLatex inserts our markers verbatim and
+            // findDescendantByCtrlSeq walks the whole tree. Warn loudly so a
+            // future regression surfaces instead of silently losing the
+            // selection.
+            console.warn(
+              'MathQuill toggleWrap: selection markers missing after \\mathbf normalisation'
+            );
+          }
+
+          ctrlr.scrollHoriz();
+          if (ctrlr.blurred) cursor.hide().parent.blur(cursor);
+          return this;
+        }
+      }
 
       // LaTeX pieces to write back, left→right. `mid` is the (un)bolded
       // selection; left/right are bold remnants used only in the split case.

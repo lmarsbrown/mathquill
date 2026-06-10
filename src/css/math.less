@@ -354,6 +354,15 @@
     height: 100%;
   }
 
+  // A superscript (exponent) following a matrix should sit at the top-right
+  // corner rather than near the vertically-centered baseline of a tall matrix.
+  // The second selector keeps this alignment when the cursor element is
+  // positioned between the matrix and the exponent.
+  .mq-matrix + .mq-supsub.mq-sup-only,
+  .mq-matrix + .mq-cursor + .mq-supsub.mq-sup-only {
+    vertical-align: top;
+  }
+
   // Adjust table position when delimiters are present
   .mq-matrix > .mq-matrix-table {
     margin-left: 0.6em;

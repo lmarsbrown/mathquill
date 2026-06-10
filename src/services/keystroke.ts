@@ -95,6 +95,7 @@ class MQNode extends NodeBase {
         ctrlr.selectLeft();
         break;
       case 'Ctrl-Left':
+        ctrlr.ctrlMoveDir(L);
         break;
 
       case 'Right':
@@ -104,6 +105,7 @@ class MQNode extends NodeBase {
         ctrlr.selectRight();
         break;
       case 'Ctrl-Right':
+        ctrlr.ctrlMoveDir(R);
         break;
 
       case 'Up':
@@ -409,28 +411,76 @@ class Controller_keystroke extends Controller_focusBlur {
 
     return this;
   }
+  /**
+   * Find the far end of the "term" adjacent to the cursor in direction `dir`.
+   * A term is the syntactic chunk that Ctrl-Backspace deletes and Ctrl-Arrow
+   * jumps over:
+   *   - a run of adjacent leaf symbols (e.g. `bc`, `34`), or
+   *   - a single grouping command (brackets, fraction, sup/sub, etc.),
+   * plus the bounding binary operator that separates it from the rest (e.g. the
+   * `+` in `ab+bc`). `cursor[dir]` (the near end) is assumed to exist — callers
+   * guard the block-edge case.
+   * @param dir L (leftward) or R (rightward) from the cursor.
+   * @returns the farthest node of the term in direction `dir`.
+   */
+  termFarEnd(dir: Direction): MQNode {
+    var cursor = this.cursor;
+    const isOperator = (node: NodeRef) => node instanceof BinaryOperator;
+    // A leaf symbol is a 0-block symbol that isn't a (separating) operator,
+    // i.e. a letter/digit/variable that merges into a run.
+    const isLeafSymbol = (node: NodeRef) =>
+      node instanceof MQSymbol && !isOperator(node);
+
+    const nearEnd = cursor[dir] as MQNode;
+    let farEnd: MQNode = nearEnd;
+
+    // Leaf symbols merge into a run; a grouping command (or lone operator) is
+    // taken as the single adjacent node.
+    if (isLeafSymbol(nearEnd)) {
+      let node = nearEnd;
+      while (isLeafSymbol(node[dir])) node = node[dir] as MQNode;
+      farEnd = node;
+    }
+
+    // Consume the binary operator bounding the term, if any, so the span has no
+    // dangling separator (delete leaves none; move jumps past it).
+    if (isOperator(farEnd[dir])) farEnd = farEnd[dir] as MQNode;
+
+    return farEnd;
+  }
+  /**
+   * Delete a single "term" in direction `dir` (Ctrl-Backspace deletes the
+   * term to the left, Ctrl-Delete the term to the right). The span is defined
+   * by `termFarEnd`. Examples (Ctrl-Backspace): `ab+bc`->`ab`,
+   * `(ab)(bc)`->`(ab)`, `(a+b)+(b+c)`->`(a+b)`.
+   * @param dir L to delete leftward, R to delete rightward.
+   * @returns this controller, for chaining.
+   */
   ctrlDeleteDir(dir: Direction) {
     prayDirection(dir);
     var cursor = this.cursor;
+    // With no adjacent node, or an active selection, fall back to the plain
+    // single-step delete (which clears the selection if present).
     if (!cursor[dir] || cursor.selection) return this.deleteDir(dir);
 
     this.notify('edit');
-    var fragRemoved;
-    if (dir === L) {
-      fragRemoved = new Fragment(
-        (cursor.parent as MQNode).getEnd(L),
-        cursor[L]
-      );
-    } else {
-      fragRemoved = new Fragment(
-        cursor[R],
-        (cursor.parent as MQNode).getEnd(R)
-      );
-    }
+
+    const nearEnd = cursor[dir] as MQNode;
+    const farEnd = this.termFarEnd(dir);
+
+    // The node just beyond the term (in direction `dir`) is where the cursor
+    // lands after removal; captured before remove() since links are rewired.
+    const beyond = farEnd[dir];
+    // Fragment endpoints are ordered (leftEnd, rightEnd).
+    const fragRemoved =
+      dir === L ? new Fragment(farEnd, nearEnd) : new Fragment(nearEnd, farEnd);
     cursor.controller.aria.queue(fragRemoved);
     fragRemoved.remove();
 
-    cursor.insAtDirEnd(dir, cursor.parent);
+    // Re-anchor the cursor: on the near side of the surviving node, or at the
+    // block's dir-end if the term reached the edge.
+    if (beyond) cursor.insDirOf(-dir as Direction, beyond as MQNode);
+    else cursor.insAtDirEnd(dir, cursor.parent);
 
     const cursorL = cursor[L];
     const cursorR = cursor[R];
@@ -442,6 +492,35 @@ class Controller_keystroke extends Controller_focusBlur {
     });
 
     return this;
+  }
+  /**
+   * Move the cursor over one "term" in direction `dir` (Ctrl-Left / Ctrl-Right)
+   * — the jump-over counterpart of `ctrlDeleteDir`, sharing `termFarEnd` so the
+   * skipped span always matches what Ctrl-Backspace would delete. With no
+   * adjacent node or an open selection, falls back to a plain one-step move
+   * (which collapses a selection and steps out of the block at its edge).
+   * @param dir L (leftward) or R (rightward).
+   * @returns this controller, for chaining.
+   */
+  ctrlMoveDir(dir: Direction) {
+    prayDirection(dir);
+    var cursor = this.cursor;
+    if (!cursor[dir] || cursor.selection) return this.moveDir(dir);
+
+    const nearEnd = cursor[dir] as MQNode;
+    const farEnd = this.termFarEnd(dir);
+
+    // Announce the skipped span for screen readers, mirroring how moveTowards
+    // queues the single node it steps over.
+    const skipped =
+      dir === L ? new Fragment(farEnd, nearEnd) : new Fragment(nearEnd, farEnd);
+    cursor.controller.aria.queue(skipped);
+
+    // Land on the far side of the term (insDirOf places the cursor on the
+    // `dir` side of farEnd), i.e. just past the span in the travel direction.
+    cursor.insDirOf(dir, farEnd);
+
+    return this.notify('move');
   }
   backspace() {
     return this.deleteDir(L);

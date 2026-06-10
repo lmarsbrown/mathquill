@@ -565,24 +565,97 @@ class Matrix extends MathCommand {
     const endMarker = '\\end{' + self.environment + '}';
 
     return new Parser(function (stream, onSuccess, onFailure) {
-      const endIndex = stream.indexOf(endMarker);
-      if (endIndex === -1) {
+      // Find the \end{...} that matches this \begin{...}, accounting for
+      // nested matrix environments. A naive indexOf would stop at the first
+      // \end of an inner matrix and truncate this matrix's content.
+      const match = self.findMatchingEnd(stream);
+      if (!match) {
         return onFailure(stream, 'expected ' + endMarker);
       }
-      const content = stream.slice(0, endIndex).trim();
-      const remaining = stream.slice(endIndex + endMarker.length);
+      const content = stream.slice(0, match.start).trim();
+      const remaining = stream.slice(match.end);
       return onSuccess(remaining, self.parseMatrixContent(content));
     });
   }
 
+  // Returns true if `token` occurs in `str` starting exactly at index `i`.
+  // Avoids String.prototype.startsWith for ES5-target compatibility.
+  private static matchAt(str: string, i: number, token: string): boolean {
+    return str.substr(i, token.length) === token;
+  }
+
+  // Scan `stream` (the text immediately after this matrix's \begin{...}) and
+  // return the bounds of the \end{...} that closes it, tracking nesting depth
+  // of any \begin/\end pairs so nested matrices are skipped over.
+  private findMatchingEnd(
+    stream: string
+  ): { start: number; end: number } | null {
+    let depth = 1;
+    let i = 0;
+    while (i < stream.length) {
+      if (Matrix.matchAt(stream, i, '\\begin{')) {
+        depth++;
+        i += '\\begin{'.length;
+      } else if (Matrix.matchAt(stream, i, '\\end{')) {
+        depth--;
+        if (depth === 0) {
+          const braceEnd = stream.indexOf('}', i);
+          if (braceEnd === -1) return null;
+          return { start: i, end: braceEnd + 1 };
+        }
+        i += '\\end{'.length;
+      } else {
+        i++;
+      }
+    }
+    return null;
+  }
+
+  // Split matrix content on a top-level separator (row '\\' or column '&'),
+  // ignoring separators that appear inside nested \begin{...}\end{...} blocks.
+  private splitTopLevel(content: string, mode: 'row' | 'col'): string[] {
+    const parts: string[] = [];
+    let buf = '';
+    let depth = 0;
+    let i = 0;
+    while (i < content.length) {
+      if (Matrix.matchAt(content, i, '\\begin{')) {
+        depth++;
+        buf += '\\begin{';
+        i += '\\begin{'.length;
+      } else if (Matrix.matchAt(content, i, '\\end{')) {
+        if (depth > 0) depth--;
+        buf += '\\end{';
+        i += '\\end{'.length;
+      } else if (
+        depth === 0 &&
+        mode === 'row' &&
+        Matrix.matchAt(content, i, '\\\\')
+      ) {
+        parts.push(buf);
+        buf = '';
+        i += 2;
+      } else if (depth === 0 && mode === 'col' && content.charAt(i) === '&') {
+        parts.push(buf);
+        buf = '';
+        i += 1;
+      } else {
+        buf += content.charAt(i);
+        i++;
+      }
+    }
+    parts.push(buf);
+    return parts;
+  }
+
   parseMatrixContent(content: string): Matrix {
-    const rowStrings = content.split(/\s*\\\\\s*/);
+    const rowStrings = this.splitTopLevel(content, 'row');
     const rows: string[][] = [];
 
     let maxCols = 0;
     for (const rowStr of rowStrings) {
       if (rowStr.trim() === '') continue;
-      const cols = rowStr.split(/\s*&\s*/);
+      const cols = this.splitTopLevel(rowStr, 'col');
       rows.push(cols);
       maxCols = Math.max(maxCols, cols.length);
     }
