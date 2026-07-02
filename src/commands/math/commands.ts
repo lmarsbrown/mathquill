@@ -450,6 +450,29 @@ class SupSub extends MathCommand {
       MathBlock.prototype.write.call(this, cursor, ch);
     };
   }
+  html() {
+    // A SupSub carrying BOTH a subscript and a superscript is assembled at
+    // runtime by welding a SubscriptCommand and a SuperscriptCommand together
+    // (see contactWeld/addBlock); the surviving node keeps only its original
+    // single-block domView and grows the second script's DOM by hand. That's
+    // fine while the DOM is only ever built incrementally, but if the subtree
+    // is re-rendered from scratch (e.g. a Matrix rebuilding its DOM after
+    // adding a row) the stale 1-block domView renders just one script and
+    // silently drops the other. Render both explicitly whenever both exist.
+    if (this.sub && this.sup) {
+      const dom = h('span', { class: 'mq-supsub mq-non-leaf' }, [
+        h.block('span', { class: 'mq-sup' }, this.sup),
+        h.block('span', { class: 'mq-sub' }, this.sub),
+        h('span', { style: 'display:inline-block;width:0' }, [
+          h.text(U_ZERO_WIDTH_SPACE),
+        ]),
+      ]);
+      this.setDOM(dom);
+      NodeBase.linkElementByCmdNode(dom, this);
+      return dom;
+    }
+    return super.html();
+  }
   moveTowards(dir: Direction, cursor: Cursor, updown?: 'up' | 'down') {
     if (cursor.options.autoSubscriptNumerals && !this.sup) {
       cursor.insDirOf(dir, this);
