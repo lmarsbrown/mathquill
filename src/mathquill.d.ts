@@ -56,6 +56,8 @@ declare namespace MathQuill {
       keystroke: (key: string, evt?: KeyboardEvent) => EditableMathQuill;
       typedText: (text: string) => EditableMathQuill;
       clearSelection: () => EditableMathQuill;
+      highlightLatexRange: (start: number, end: number) => EditableMathQuill;
+      clearLatexHighlights: () => EditableMathQuill;
       blur: () => EditableMathQuill;
       focus: () => EditableMathQuill;
       getAriaPostLabel: () => string;
@@ -179,6 +181,8 @@ declare namespace MathQuill {
       keystroke: (key: string, evt?: KeyboardEvent) => void;
       typedText: (text: string) => void;
       clearSelection: () => void;
+      highlightLatexRange: (start: number, end: number) => void;
+      clearLatexHighlights: () => void;
       blur: () => void;
       focus: () => void;
       getAriaPostLabel: () => string;

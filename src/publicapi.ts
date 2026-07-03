@@ -570,10 +570,146 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     return found;
   }
 
+  /**
+   * A child block of a command node located within the command's own RAW
+   * LaTeX, for find-highlight descent: `start`/`end` are offsets of the
+   * block's `latex()` inside the PARENT node's `latex()` string, [start, end).
+   */
+  interface FindBlockSpan {
+    block: MQNode;
+    start: number;
+    end: number;
+  }
+
+  /**
+   * Locate each non-empty child block of `node` within `node.latex()`, for
+   * find-highlight descent (spec/ux.md §19.3). MathQuill commands have no
+   * "where do my blocks sit in my LaTeX" metadata, so placement is derived
+   * generically: scan for each block's LaTeX left-to-right (earliest possible
+   * decomposition) and right-to-left (latest possible). If both agree, the
+   * decomposition is provably unique and the spans are exact; if they disagree
+   * (a block's LaTeX also occurs in the command's fixed syntax, e.g. the `l`
+   * in `\left(l\right)`), or a block's LaTeX is not embedded literally,
+   * descent is refused.
+   * @param node - the command node to decompose.
+   * @returns spans of each non-empty child block (offsets relative to
+   *   `node.latex()`), or null when `node` has no blocks or placement is not
+   *   provably unique — callers then highlight `node` whole.
+   */
+  function findHighlightBlockSpans(node: MQNode): FindBlockSpan[] | null {
+    const nodeLatex = node.latex();
+    const blocks: MQNode[] = [];
+    const blockLatex: string[] = [];
+    node.eachChild((b) => {
+      blocks.push(b);
+      blockLatex.push(b.latex());
+      return undefined;
+    });
+    if (blocks.length === 0) return null;
+    // Earliest decomposition: each block at the first position after the
+    // previous block's end. Empty blocks are zero-width — skipped (nothing to
+    // descend into).
+    const earliest: (number | null)[] = [];
+    let pos = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      const s = blockLatex[i]!;
+      if (s.length === 0) {
+        earliest.push(null);
+        continue;
+      }
+      const at = nodeLatex.indexOf(s, pos);
+      if (at < 0) return null; // block LaTeX transformed, not embedded literally
+      earliest.push(at);
+      pos = at + s.length;
+    }
+    // Latest decomposition: the same scan mirrored from the right.
+    const latest: (number | null)[] = [];
+    for (let i = 0; i < blocks.length; i++) latest.push(null);
+    pos = nodeLatex.length;
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const s = blockLatex[i]!;
+      if (s.length === 0) continue;
+      const at = s.length > pos ? -1 : nodeLatex.lastIndexOf(s, pos - s.length);
+      if (at < 0) return null;
+      latest[i] = at;
+      pos = at;
+    }
+    const spans: FindBlockSpan[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const at = earliest[i];
+      if (at === null) continue;
+      if (at !== latest[i]) return null; // ambiguous — refuse rather than guess
+      spans.push({
+        block: blocks[i]!,
+        start: at,
+        end: at + blockLatex[i]!.length,
+      });
+    }
+    return spans;
+  }
+
+  /**
+   * Find the narrowest run of sibling nodes covering the RAW-LaTeX range
+   * [start, end), recursing into command blocks when the range falls entirely
+   * inside one (spec/ux.md §19.3).
+   * @param block - a block node whose children's `latex()` concatenation
+   *   starts at raw offset `blockStart`.
+   * @param blockStart - raw-LaTeX offset where `block`'s content begins.
+   * @param start - raw-LaTeX range start (inclusive).
+   * @param end - raw-LaTeX range end (exclusive).
+   * @returns the run's left/right nodes (possibly the same node), or null when
+   *   the range does not intersect the block's children.
+   */
+  function findHighlightRun(
+    block: MQNode,
+    blockStart: number,
+    start: number,
+    end: number
+  ): { left: MQNode; right: MQNode } | null {
+    let off = blockStart;
+    let left: MQNode | undefined;
+    let leftStart = 0;
+    let right: MQNode | undefined;
+    block.eachChild((child) => {
+      const len = child.latex().length;
+      if (left === undefined && start < off + len) {
+        left = child;
+        leftStart = off;
+      }
+      if (off < end) right = child;
+      off += len;
+      return undefined;
+    });
+    if (!left || !right) return null;
+    // Range within a single node: descend into the child block that fully
+    // contains it for a tighter highlight. Any failure (no blocks, ambiguous
+    // placement, range straddling a block boundary) falls back to the whole
+    // node — over-highlight, never a wrong highlight.
+    if (left === right) {
+      const spans = findHighlightBlockSpans(left);
+      if (spans) {
+        for (const span of spans) {
+          const s = leftStart + span.start;
+          const e = leftStart + span.end;
+          if (start >= s && end <= e) {
+            const deeper = findHighlightRun(span.block, s, start, end);
+            if (deeper) return deeper;
+            break; // blocks are disjoint — no other block can contain the range
+          }
+        }
+      }
+    }
+    return { left, right };
+  }
+
   abstract class EditableField
     extends AbstractMathQuill
     implements IEditableField
   {
+    // Find/replace passive highlight (spec/ux.md §19.3): the DOM fragment whose
+    // elements currently carry the `mq-find-highlight` class, or undefined.
+    __findHighlightFrag: DOMFragment | undefined;
+
     mathquillify(classNames: string) {
       super.mathquillify(classNames);
       this.__controller.editable = true;
@@ -635,6 +771,81 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     }
     clearSelection() {
       this.__controller.cursor.clearSelection();
+      return this;
+    }
+
+    /**
+     * Find/replace passive highlight (spec/ux.md §19.3). Highlights the
+     * smallest run of sibling nodes — at ANY nesting depth — whose LaTeX
+     * covers the character range [start, end) of this field's `latex()`, by
+     * class-tagging their DOM (`mq-find-highlight`). The walk descends into
+     * command blocks (brackets, fractions, scripts, …) when the range falls
+     * entirely inside one, so `x^{2}` inside `\left(x^{2}+y^{2}\right)`
+     * highlights just `x^{2}`, not the whole bracket group; descent that
+     * cannot place a block unambiguously (see findHighlightBlockSpans) tags
+     * the whole command node instead — over-highlight, never a wrong
+     * highlight. PASSIVE by design: it does NOT touch `cursor.selection`,
+     * move the caret, take focus, or change any editing state, and it
+     * survives blur (plain DOM decoration). Any previous find-highlight is
+     * cleared first.
+     * @param start LaTeX offset (into `this.latex()`) of the range start.
+     * @param end LaTeX offset of the range end (exclusive).
+     * @returns this (for chaining).
+     */
+    highlightLatexRange(start: number, end: number) {
+      this.clearLatexHighlights();
+      if (!(end > start)) return this;
+      const ctrlr = this.__controller;
+      // Offsets are in EXPORTED-LaTeX space (what this.latex() returns), but
+      // the node walk is in RAW space: exportLatex() = cleanLatex(root.latex()),
+      // and cleanLatex prunes the space after a command not followed by a
+      // letter (e.g. `\approx ` → `\approx` before a digit), so clean is raw
+      // with chars deleted. A two-pointer subsequence match maps each clean
+      // char to its raw index; the range converts to raw space once, up front.
+      const raw = ctrlr.root.latex();
+      const clean = ctrlr.exportLatex();
+      if (end > clean.length) return this; // stale offsets — nothing to highlight
+      const rawIndexOfClean: number[] = new Array(clean.length);
+      let c = 0;
+      for (let r = 0; r < raw.length && c < clean.length; r++) {
+        if (raw.charAt(r) === clean.charAt(c)) {
+          rawIndexOfClean[c] = r;
+          c++;
+        }
+      }
+      // clean is raw-with-deletions by construction, so this cannot fail; if
+      // it ever does, refuse to highlight rather than paint a wrong range.
+      if (c < clean.length) return this;
+      const rawStart = rawIndexOfClean[start]!;
+      const rawEnd = rawIndexOfClean[end - 1]! + 1;
+      const run = findHighlightRun(ctrlr.root, 0, rawStart, rawEnd);
+      if (!run) return this;
+      // Color the matched node elements IN PLACE rather than wrapping them in a
+      // span. A wrapper span changes the DOM structure MathQuill's own selection
+      // rendering relies on (getDOMFragFromEnds().join over the root's children),
+      // which broke Ctrl+A/selectAll inside a highlighted field. addClass is
+      // non-structural, so editing + selection are unaffected. join() needs a
+      // DISTINCT forward sibling, so a single-node match uses its fragment direct.
+      const frag =
+        run.left === run.right
+          ? run.left.domFrag()
+          : run.left.domFrag().join(run.right.domFrag());
+      frag.addClass('mq-find-highlight');
+      this.__findHighlightFrag = frag;
+      return this;
+    }
+
+    /**
+     * Clear any highlight applied by {@link highlightLatexRange}, unwrapping the
+     * `<span class="mq-find-highlight">` and restoring its children in place.
+     * No-op when nothing is highlighted.
+     * @returns this (for chaining).
+     */
+    clearLatexHighlights() {
+      if (this.__findHighlightFrag) {
+        this.__findHighlightFrag.removeClass('mq-find-highlight');
+        this.__findHighlightFrag = undefined;
+      }
       return this;
     }
 

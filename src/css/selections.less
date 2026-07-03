@@ -22,6 +22,16 @@
       }
     }
   }
+
+  // Find/replace passive highlight (spec/ux.md §19.3). A distinct amber tint so
+  // a find match reads differently from the blue editing selection, and unlike
+  // the selection it persists when the field is blurred (no .mq-blur fade).
+  .mq-find-highlight {
+    &, & .mq-non-leaf, & .mq-scaled {
+      background: #ffd166 !important;
+      color: black;
+    }
+  }
 }
 
 
