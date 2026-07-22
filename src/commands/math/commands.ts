@@ -786,6 +786,27 @@ LatexCmds['∏'] =
 LatexCmds.coprod = LatexCmds.coproduct = () =>
   new SummationNotation('\\coprod ', U_NARY_COPRODUCT, 'co product');
 
+// `for` — the array-building binder (one element per index step), rendered
+// as the word "for" with the same limit slots as sum/prod. The word gets the
+// operator-name treatment (sin/cos/ln styling: base size, upright) rather
+// than the 200% <big> glyph scaling — a word isn't a glyph. display:block
+// inline because the stacked layout's CSS only targets `big`.
+LatexCmds['for'] = () =>
+  new (class extends SummationNotation {
+    constructor() {
+      super('\\for ', 'for', 'for');
+      this.domView = new DOMView(2, (blocks) =>
+        h('span', { class: 'mq-large-operator mq-word-operator mq-non-leaf' }, [
+          h('span', { class: 'mq-to' }, [h.block('span', {}, blocks[1])]),
+          h('span', { class: 'mq-operator-name', style: 'display:block' }, [
+            h.text('for'),
+          ]),
+          h('span', { class: 'mq-from' }, [h.block('span', {}, blocks[0])]),
+        ])
+      );
+    }
+  })();
+
 LatexCmds['∫'] =
   LatexCmds['int'] =
   LatexCmds.integral =

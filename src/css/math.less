@@ -489,6 +489,14 @@
     padding: .2em;
     text-align: center;
 
+    // word-rendered operators (e.g. \for): the -.2em shift is tuned for the
+    // 200% glyphs; a base-size word should sit on the text baseline like an
+    // operator name (the container's baseline IS the word's — .mq-from is
+    // floated out of flow).
+    &.mq-word-operator {
+      vertical-align: baseline;
+    }
+
     .mq-from, big, .mq-to  {
       display: block;
     }
