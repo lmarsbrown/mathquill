@@ -291,7 +291,7 @@
   .mq-matrix-table {
     display: inline-table;
     border-collapse: separate;
-    border-spacing: 0.2em;
+    border-spacing: 0.1em;
     vertical-align: middle;
   }
 
@@ -301,7 +301,7 @@
 
   .mq-matrix-cell {
     display: table-cell;
-    padding: 0.15em 0.2em;
+    padding: 0.06em 0.16em;
     text-align: center;
     vertical-align: middle;
     min-width: 1em;
@@ -338,12 +338,12 @@
 
   .mq-matrix-delim-left {
     left: 0;
-    width: 0.55em;
+    width: 0.38em;
   }
 
   .mq-matrix-delim-right {
     right: 0;
-    width: 0.55em;
+    width: 0.38em;
   }
 
   .mq-matrix-delim svg {
@@ -352,6 +352,37 @@
     left: 0;
     width: 100%;
     height: 100%;
+  }
+
+  // Square-bracket delimiters are drawn with CSS borders (not a stretched SVG),
+  // so the top/bottom arms keep a UNIFORM thickness however tall the matrix is.
+  // `border` width is the bracket thickness knob (tune here).
+  .mq-matrix-bracket {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border: 0.07em solid currentColor;
+  }
+  .mq-matrix-bracket-lsquare {
+    border-right: 0;
+  }
+  .mq-matrix-bracket-rsquare {
+    border-left: 0;
+  }
+
+  // Round-bracket delimiters: a stroked centre-line with a non-scaling stroke,
+  // so the stroke stays constant width when the box is stretched (a filled
+  // outline would thicken). `stroke-width` is the thickness knob (tune here).
+  .mq-matrix-delim-line path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3px;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   // A superscript (exponent) following a matrix should sit at the top-right
@@ -365,8 +396,8 @@
 
   // Adjust table position when delimiters are present
   .mq-matrix > .mq-matrix-table {
-    margin-left: 0.6em;
-    margin-right: 0.6em;
+    margin-left: 0.42em;
+    margin-right: 0.42em;
   }
 
   // For matrix without delimiters

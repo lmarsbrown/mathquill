@@ -12,6 +12,23 @@
  * - Backspace on empty cell otherwise: move to cell on left
  *********************************************/
 
+// Build a stroked, non-scaling-stroke SVG delimiter for a matrix (round
+// brackets). The path is a CENTRE-LINE, not a filled outline, so with
+// `vector-effect: non-scaling-stroke` (see math.less .mq-matrix-delim-line)
+// the stroke keeps a constant width however tall the delimiter box is
+// stretched — a filled outline instead thickens its arms as it scales.
+function matrixLineDelim(d: string): Element {
+  return h(
+    'svg',
+    {
+      preserveAspectRatio: 'none',
+      viewBox: '0 0 11 24',
+      class: 'mq-matrix-delim-line',
+    },
+    [h('path', { d })]
+  );
+}
+
 type MatrixEnvironment =
   | 'matrix'
   | 'pmatrix'
@@ -467,11 +484,24 @@ class Matrix extends MathCommand {
   }
 
   getDelimiterSymbol(delim: string, _side: 'left' | 'right'): Element {
+    // Square brackets are drawn with CSS borders (see math.less
+    // .mq-matrix-bracket) so the top/bottom arms stay a uniform thickness at
+    // any matrix height; a stretched filled SVG thickens them as it scales.
+    if (delim === '[')
+      return h('span', {
+        class: 'mq-matrix-bracket mq-matrix-bracket-lsquare',
+      });
+    if (delim === ']')
+      return h('span', {
+        class: 'mq-matrix-bracket mq-matrix-bracket-rsquare',
+      });
+    // Round brackets use a stroked centre-line (constant stroke width when
+    // stretched, unlike the filled SVG_SYMBOLS outlines).
+    if (delim === '(') return matrixLineDelim('M8 1 C3.5 7.5 3.5 16.5 8 23');
+    if (delim === ')') return matrixLineDelim('M3 1 C7.5 7.5 7.5 16.5 3 23');
+
+    // Remaining delimiters ({ } | ‖) keep the shared filled SVG glyphs.
     const svgMap: Record<string, () => Element> = {
-      '(': () => SVG_SYMBOLS['('].html(),
-      ')': () => SVG_SYMBOLS[')'].html(),
-      '[': () => SVG_SYMBOLS['['].html(),
-      ']': () => SVG_SYMBOLS[']'].html(),
       '{': () => SVG_SYMBOLS['{'].html(),
       '}': () => SVG_SYMBOLS['}'].html(),
       '|': () => SVG_SYMBOLS['|'].html(),
