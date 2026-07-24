@@ -307,6 +307,15 @@ class IterateNotation extends MathCommand {
     const seedRect = seedEl.getBoundingClientRect();
     const seedW = seedRect.width;
 
+    // A seed WITH content that measures 0x0 means the element has no layout
+    // yet — detached, display:none, or rendered before the box was laid out.
+    // Sizing from that writes the geometry minimum and it STICKS, because
+    // MathQuill only reflows on edit. Leave the previous geometry alone and
+    // wait to be reflowed again once the element is measurable. An EMPTY seed
+    // legitimately measures zero, and its minimal loop is correct.
+    const seed = this.parts()[0];
+    if (seed.getEnd(L) && seedRect.width === 0 && seedRect.height === 0) return;
+
     const v = iterateVarMetrics(this.getEnd(L), seedRect.left);
     // fall back to the seed's box centre when there is no variable to anchor on
     const centreY = v ? v.centreY : seedRect.top + seedRect.height / 2;
