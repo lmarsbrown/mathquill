@@ -308,6 +308,17 @@ class Matrix extends MathCommand {
         }
       }
     }
+
+    // Adding or deleting a row/column changes the matrix's rendered size, so
+    // ancestors that size THEMSELVES by measuring it must re-measure: stretchy
+    // brackets, and the \iterate loop. Ordinary edits bubble this via
+    // MathCommand.finalizeInsert, but the row/column mutations reach the DOM
+    // through rebuildDOM instead and so bypassed it — leaving those ancestors
+    // drawn from dimensions the matrix no longer has.
+    this.bubble(function (node) {
+      node.reflow();
+      return undefined;
+    });
   }
 
   addColumn(afterCol: number, cursor: Cursor) {

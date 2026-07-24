@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Iterate operator test</title>
+    <link rel="stylesheet" href="build/mathquill.css" />
+    <style>
+      body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        margin: 0;
+        padding: 32px;
+        line-height: 1.5;
+        color: #1c1e24;
+        max-width: 960px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      p.sub {
+        color: #6b6e7a;
+        margin: 0 0 24px;
+      }
+      h2 {
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #6b6e7a;
+        margin: 28px 0 10px;
+        font-weight: 600;
+      }
+      #mathfield {
+        font-size: 22px;
+        min-height: 2.4em;
+        width: 100%;
+        padding: 14px;
+        border: 1px solid #d8d6ce;
+        border-radius: 10px;
+      }
+      /* a second field that is NEVER typed in — proves initial render works */
+      #staticfield {
+        font-size: 22px;
+        padding: 14px;
+        border: 1px dashed #d8d6ce;
+        border-radius: 10px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 14px 0;
+      }
+      button {
+        padding: 8px 12px;
+        font-size: 13px;
+        font-family: inherit;
+        background: #fff;
+        border: 1px solid #d8d6ce;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: #3552c9;
+        color: #3552c9;
+      }
+      pre {
+        background: #f7f6f2;
+        border: 1px solid #e4e2da;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 13px;
+        overflow-x: auto;
+        margin: 0;
+        font-family: 'Cascadia Code', ui-monospace, Consolas, monospace;
+      }
+      .ok {
+        color: #1a7f45;
+        font-weight: 600;
+      }
+      .bad {
+        color: #b3261e;
+        font-weight: 600;
+      }
+      ol {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+      code {
+        background: #f0eee8;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-family: 'Cascadia Code', ui-monospace, Consolas, monospace;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Iterate operator — <code>\iterate{g=0}_{k=1}^{n}</code></h1>
+    <p class="sub">
+      Loads <code>build/mathquill.js</code> directly. Rebuild with
+      <code>node build.js</code> and hard-refresh (Ctrl+Shift+R) after any
+      change.
+    </p>
+
+    <h2>How to type it</h2>
+    <ol>
+      <li>
+        Click into the field below and type <code>\iterate</code> then a space.
+      </li>
+      <li>The cursor lands in the seed slot — type <code>g=0</code>.</li>
+      <li>
+        <kbd>Down</kbd> for the lower bound, <kbd>Up</kbd> for the upper bound.
+      </li>
+      <li>
+        <kbd>Right</kbd> out of the operator, then type the body (e.g.
+        <code>g+k^2</code>) — it is trailing content, not a slot.
+      </li>
+    </ol>
+
+    <h2>Editable field</h2>
+    <div id="mathfield"></div>
+    <div class="controls">
+      <button onclick="insert()">Insert \iterate</button>
+      <button onclick="preset()">Load full example</button>
+      <button onclick="mathField.reflow()">Force reflow()</button>
+      <button onclick="roundTrip()">Round-trip test</button>
+      <button onclick="mathField.latex('')">Clear</button>
+    </div>
+    <pre id="latex">(empty)</pre>
+
+    <h2>Static field &mdash; never edited, proves initial render</h2>
+    <p class="sub" style="margin-bottom: 10px">
+      Set once via <code>.latex()</code> at load with no edit and no manual
+      reflow. If the loop is missing or unsized here but appears in the editable
+      field once you type, then <code>reflow()</code> is not running on initial
+      render.
+    </p>
+    <div id="staticfield"></div>
+
+    <h2>Tuning</h2>
+    <p class="sub" style="margin-bottom: 10px">
+      Live-edits <code>ITERATE_EM</code> and reflows every operator on the page.
+      Values are in em. Copy the spec below into
+      <code>src/commands/math/iterate.ts</code> when you're happy.
+    </p>
+    <div id="tuners"></div>
+    <div class="controls">
+      <button onclick="resetTuners()">Reset to built-in</button>
+    </div>
+    <pre id="spec">(waiting)</pre>
+
+    <h2>First-render check &mdash; why does the variable jump?</h2>
+    <p class="sub" style="margin-bottom: 10px">
+      Snapshots the seed's measured metrics at load, then again after webfonts
+      report ready, and diffs them. If they differ, the first
+      <code>reflow()</code> measured pre-font metrics and the jump is font
+      loading, not the geometry.
+    </p>
+    <pre id="fontcheck">(waiting)</pre>
+
+    <h2>Geometry actually rendered</h2>
+    <pre id="geom">(waiting)</pre>
+
+    <script src="build/mathquill.js"></script>
+    <script>
+      var MQ = MathQuill.getInterface(3);
+      var SAMPLE = '\\iterate{g=0}_{k=1}^{n}g+k^2';
+
+      window.mathField = MQ.MathField(document.getElementById('mathfield'), {
+        spaceBehavesLikeTab: false,
+        autoOperatorNames: 'sin cos tan log ln exp',
+        handlers: {
+          edit: function () {
+            document.getElementById('latex').textContent =
+              mathField.latex() || '(empty)';
+            report();
+          },
+        },
+      });
+
+      // deliberately set once, with no edit and no reflow() call
+      var staticField = MQ.StaticMath(document.getElementById('staticfield'));
+      staticField.latex(SAMPLE);
+
+      function insert() {
+        mathField.cmd('\\iterate');
+        mathField.focus();
+      }
+      function preset() {
+        mathField.latex(SAMPLE);
+        mathField.focus();
+        report();
+      }
+
+      function roundTrip() {
+        mathField.latex(SAMPLE);
+        var out = mathField.latex();
+        // Normalise before comparing: MathQuill always brace-wraps single-token
+        // sup/sub args (k^2 -> k^{2}), which is expected and unrelated to us.
+        var norm = function (s) {
+          return s.replace(/\s+/g, '').replace(/([_^])\{([^{}])\}/g, '$1$2');
+        };
+        var pass = norm(out) === norm(SAMPLE);
+        document.getElementById('latex').innerHTML =
+          'in:  ' +
+          SAMPLE +
+          '\nout: ' +
+          out +
+          '\n\n' +
+          (pass
+            ? '<span class="ok">round-trip OK</span>'
+            : '<span class="bad">MISMATCH — parser() or latex() is wrong</span>');
+        report();
+      }
+
+      // The same measurements reflow() takes, so we can watch them change.
+      function seedMetrics(seed, em) {
+        var r = seed.getBoundingClientRect();
+        var firstEl = seed.querySelector('*');
+        if (!firstEl) return null;
+        var f = firstEl.getBoundingClientRect();
+        var centre = f.top + f.height / 2;
+        return {
+          seedW: r.width / em,
+          seedH: r.height / em,
+          above: (centre - r.top) / em,
+          below: (r.bottom - centre) / em,
+        };
+      }
+
+      // Report what the glyph actually drew, so a blank loop can be told apart
+      // from a wrongly-sized one.
+      function report() {
+        var out = [];
+        document.querySelectorAll('.mq-iterate').forEach(function (op, i) {
+          var svg = op.querySelector('.mq-iterate-glyph');
+          var seed = op.querySelector('.mq-iterate-seed');
+          var outline = op.querySelector('.mq-iterate-outline');
+          var loop = op.querySelector('.mq-iterate-loop');
+          if (!svg || !seed || !loop) {
+            out.push('#' + i + ' MISSING PARTS');
+            return;
+          }
+          var em = parseFloat(getComputedStyle(loop).fontSize);
+          var w = parseFloat(svg.getAttribute('width') || '0');
+          var hgt = parseFloat(svg.getAttribute('height') || '0');
+          var d = outline.getAttribute('d');
+          var m = seedMetrics(seed, em);
+          out.push(
+            '#' +
+              i +
+              '  1em = ' +
+              em.toFixed(1) +
+              'px' +
+              '\n    svg      ' +
+              (w / em).toFixed(3) +
+              ' x ' +
+              (hgt / em).toFixed(3) +
+              ' em' +
+              '\n    height   floor 2.750 em -> ' +
+              (hgt / em > 2.77 ? 'stretched by a tall seed' : 'at floor') +
+              (m
+                ? '\n    seed     w ' +
+                  m.seedW.toFixed(3) +
+                  ' em   h ' +
+                  m.seedH.toFixed(3) +
+                  ' em' +
+                  '\n    anchor   above ' +
+                  m.above.toFixed(3) +
+                  ' em   below ' +
+                  m.below.toFixed(3) +
+                  ' em'
+                : '\n    seed     (empty)') +
+              '\n    path     ' +
+              (d ? d.slice(0, 56) + '...' : 'EMPTY  <-- reflow never ran')
+          );
+        });
+        document.getElementById('geom').textContent = out.length
+          ? out.join('\n\n')
+          : '(no \\iterate on the page)';
+      }
+
+      // ---- tuning sliders over ITERATE_EM ----
+      var EM = window.MQ_ITERATE_EM;
+      var BUILTIN = EM ? JSON.parse(JSON.stringify(EM)) : null;
+      var TUNERS = [
+        ['stroke', 0, 0.4, 0.005],
+        ['radius', 0, 1.5, 0.005],
+        ['arrowLen', 0, 1, 0.005],
+        ['arrowHalfWidth', 0, 0.6, 0.002],
+        ['gap', 0, 4, 0.005],
+        ['gapPad', 0, 1, 0.005],
+        ['gapCentreOffset', -1, 1, 0.005],
+        ['textOffset', -1, 1, 0.005],
+        ['seedOffsetX', -1, 1, 0.005],
+        ['padRight', 0, 2, 0.005],
+        ['seedPadY', 0, 1.5, 0.005],
+        ['height', 0.5, 8, 0.005],
+        ['upperOffset', -1, 1, 0.005],
+        ['lowerOffset', -1, 1, 0.005],
+        ['trailingGap', 0, 1, 0.005],
+        ['axisHeight', -0.5, 1.5, 0.005],
+      ];
+
+      function buildTuners() {
+        var host = document.getElementById('tuners');
+        if (!EM) {
+          host.innerHTML =
+            '<p class="sub">Sliders are off. The tuning hook is deliberately not in the ' +
+            'shipped source — to re-enable, add this just below the ' +
+            '<code>ITERATE_EM</code> object in <code>src/commands/math/iterate.ts</code>, ' +
+            'rebuild, and hard-refresh:</p>' +
+            '<pre>(window as any).MQ_ITERATE_EM = ITERATE_EM;</pre>' +
+            '<p class="sub">Remove it again when you are done. See ITERATE-TUNING.md.</p>';
+          return;
+        }
+        TUNERS.forEach(function (t) {
+          var key = t[0];
+          var row = document.createElement('div');
+          row.style.cssText =
+            'display:grid;grid-template-columns:150px 1fr 74px;gap:10px;align-items:center;margin-bottom:4px';
+          var label = document.createElement('label');
+          label.textContent = key;
+          label.style.fontSize = '13px';
+          var input = document.createElement('input');
+          input.type = 'range';
+          input.min = t[1];
+          input.max = t[2];
+          input.step = t[3];
+          input.value = EM[key];
+          var out = document.createElement('output');
+          out.style.cssText =
+            'font-family:Cascadia Code,ui-monospace,Consolas,monospace;font-size:12px;text-align:right';
+          out.textContent = (+EM[key]).toFixed(3);
+          input.addEventListener('input', function () {
+            EM[key] = parseFloat(input.value);
+            out.textContent = (+input.value).toFixed(3);
+            retune();
+          });
+          input.dataset.key = key;
+          row.appendChild(label);
+          row.appendChild(input);
+          row.appendChild(out);
+          host.appendChild(row);
+        });
+      }
+
+      function resetTuners() {
+        if (!EM || !BUILTIN) return;
+        Object.keys(BUILTIN).forEach(function (k) {
+          EM[k] = BUILTIN[k];
+        });
+        document.querySelectorAll('#tuners input').forEach(function (i) {
+          i.value = EM[i.dataset.key];
+          i.nextElementSibling.textContent = (+EM[i.dataset.key]).toFixed(3);
+        });
+        retune();
+      }
+
+      // reflow every field so the new values take effect
+      function retune() {
+        mathField.reflow();
+        staticField.reflow();
+        if (!EM) {
+          document.getElementById('spec').textContent =
+            'Tuning hook not present — see the Tuning section above.';
+          report();
+          return;
+        }
+        var lines = TUNERS.map(function (t) {
+          return (
+            '  ' +
+            t[0].padEnd(17, ' ') +
+            (+EM[t[0]]).toFixed(3).padStart(7, ' ')
+          );
+        });
+        document.getElementById('spec').textContent =
+          'ITERATE_EM (em)\n\n' + lines.join('\n');
+        report();
+      }
+
+      buildTuners();
+      retune();
+
+      // ---- first-render diagnostic ----
+      // reflow() measures the DOM. If webfonts land after the first reflow,
+      // every measurement it took is stale — which shows up as the variable
+      // and the right padding jumping on the next reflow (e.g. a slider move).
+      function snap() {
+        var op = document.querySelector('.mq-iterate');
+        if (!op) return null;
+        var seed = op.querySelector('.mq-iterate-seed');
+        var loop = op.querySelector('.mq-iterate-loop');
+        if (!seed || !loop) return null;
+        return seedMetrics(seed, parseFloat(getComputedStyle(loop).fontSize));
+      }
+      function fmt(m) {
+        return m
+          ? 'w ' +
+              m.seedW.toFixed(3) +
+              '   h ' +
+              m.seedH.toFixed(3) +
+              '   above ' +
+              m.above.toFixed(3) +
+              '   below ' +
+              m.below.toFixed(3)
+          : '(none)';
+      }
+
+      var atLoad = snap();
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(function () {
+          var whenReady = snap(); // measured, but before we re-reflow
+          mathField.reflow();
+          staticField.reflow();
+          var afterReflow = snap();
+
+          var moved =
+            atLoad &&
+            whenReady &&
+            (Math.abs(atLoad.seedW - whenReady.seedW) > 0.001 ||
+              Math.abs(atLoad.above - whenReady.above) > 0.001 ||
+              Math.abs(atLoad.below - whenReady.below) > 0.001);
+
+          document.getElementById('fontcheck').textContent =
+            'at load        ' +
+            fmt(atLoad) +
+            '\n' +
+            'fonts ready    ' +
+            fmt(whenReady) +
+            '\n' +
+            'after reflow   ' +
+            fmt(afterReflow) +
+            '\n\n' +
+            (moved
+              ? 'CONFIRMED: metrics changed once fonts loaded.\n' +
+                'The first reflow() measured fallback-font glyphs, so the variable\n' +
+                'and right padding were computed from stale numbers.\n' +
+                'Fix belongs in the host: reflow from document.fonts.ready.'
+              : 'NOT font loading: metrics were identical before and after.\n' +
+                'Look elsewhere for the jump.');
+          report();
+        });
+      } else {
+        document.getElementById('fontcheck').textContent =
+          'document.fonts unavailable in this browser.';
+      }
+    </script>
+  </body>
+</html>

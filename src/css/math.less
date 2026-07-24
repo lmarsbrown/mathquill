@@ -540,6 +540,63 @@
     }
   }
 
+  // The iterate operator. Stacked like a large operator (limits above and
+  // below), with two differences: the limits render FULL SIZE rather than at
+  // script size, and the glyph is an SVG loop whose width is computed in
+  // IterateNotation.reflow() from the measured seed block. The seed block and
+  // the SVG are both absolutely positioned inside .mq-iterate-loop, whose box
+  // reflow() sizes explicitly — so neither one drives layout.
+  .mq-iterate {
+    // vertical-align is set from reflow() (ITERATE_EM.baselineShift), because
+    // it depends on the loop's measured height.
+    padding: .2em;
+    text-align: center;
+
+    .mq-from, .mq-to, .mq-iterate-loop {
+      display: block;
+    }
+    .mq-from {
+      float: right; /* take out of normal flow to manipulate baseline */
+      width: 100%;
+    }
+
+    .mq-iterate-loop {
+      position: relative;
+      margin: 0 auto;
+      line-height: 0; // so the strut alone defines the line box
+    }
+    // pinned to the loop's full height, so the line box's baseline — and hence
+    // the whole operator's — sits on the loop's bottom edge
+    .mq-iterate-strut {
+      display: inline-block;
+      width: 0;
+      height: 100%;
+    }
+    .mq-iterate-glyph {
+      position: absolute;
+      top: 0;
+      left: 0;
+      overflow: visible; // the arrowhead can overhang the left edge
+    }
+    .mq-iterate-outline {
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .mq-iterate-head {
+      fill: currentColor;
+    }
+    // positioned by its box TOP (reflow computes it from the variable's centre,
+    // so a lopsided seed like x^2^2^2^2 still hangs its variable on the arrow)
+    .mq-iterate-seed {
+      position: absolute;
+      white-space: nowrap;
+      text-align: left;
+      line-height: normal; // undo the loop's line-height: 0
+    }
+  }
+
 
   &, .mq-editable-field {
     cursor: text;
